@@ -8,6 +8,8 @@
 
 当前版本 **0.2.0** · 适配 **DSH 0.2.1-rc.1+** · 与 [dsh-purge Community](https://github.com/kingcharleslzy-ai/dsh-purge)、[dsh-connect-workbuddy](https://github.com/dingminhua/dsh-connect-workbuddy)、[dsh-qoder-connect](https://github.com/masknull/dsh-qoder-connect) 组合使用
 
+[English](docs/README.en.md) · [日本語](docs/README.ja.md)
+
 </div>
 
 ---
@@ -426,5 +428,3 @@ dsh-gateway-shield/
 ## 许可
 
 MIT。见 [LICENSE](LICENSE)。
-
-本插件是独立实现，与 dsh-purge Community、dsh-connect-workbuddy、dsh-qoder-connect 无隶属关系，只在其作者公开发布的代码与注释基础上分析了网关行为。
