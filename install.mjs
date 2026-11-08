@@ -130,17 +130,22 @@ function locateAnchor(text) {
   return { end: purgeIdx + lastItemLine };
 }
 
-/** 递归复制，跳过 node_modules / .git / 备份。 */
+/** 递归复制，跳过 node_modules / .git / 备份。返回复制的文件数。 */
 function copyDir(src, dst) {
   fs.mkdirSync(dst, { recursive: true });
+  let n = 0;
   for (const e of fs.readdirSync(src, { withFileTypes: true })) {
     if (["node_modules", ".git"].includes(e.name)) continue;
     if (e.name.endsWith(".bak") || e.name.includes(".bak-")) continue;
     const s = path.join(src, e.name);
     const d = path.join(dst, e.name);
-    if (e.isDirectory()) copyDir(s, d);
-    else fs.copyFileSync(s, d);
+    if (e.isDirectory()) n += copyDir(s, d);
+    else {
+      fs.copyFileSync(s, d);
+      n += 1;
+    }
   }
+  return n;
 }
 
 function verify() {
@@ -183,23 +188,31 @@ function install() {
   log("");
 
   // 1) 复制文件
+  //
+  // 曾经这里用「先 rename 成 .old.<时间戳>，再重新 mkdir」的方式做原地升级。
+  // 那条路在 pnpm 装包时必挂：pnpm 自己正持有这个目录，Windows 会返回
+  // EBUSY（resource busy or locked）。而且 pnpm 的 postinstall 一失败，
+  // 它会把整条依赖回滚掉 —— package.json 里的声明被删，目录却残留。
+  //
+  // 所以改成原地覆盖：逐文件 copyFileSync 覆盖同名文件，不做 rename、
+  // 不删目录。覆盖一个被读着的 .js 文件在 Windows 上是允许的（只读打开），
+  // 而 rename 一个被打开的目录不允许。
   if (!DRY) {
-    if (fs.existsSync(TARGET)) {
-      const old = `${TARGET}.old.${Date.now()}`;
-      fs.renameSync(TARGET, old);
-      log(`旧版本移到 ${old}`);
-    }
     fs.mkdirSync(TARGET, { recursive: true });
+    let n = 0;
     for (const item of SHIP) {
       const s = path.join(HERE, item);
       if (!fs.existsSync(s)) continue;
       const d = path.join(TARGET, item);
-      if (fs.statSync(s).isDirectory()) copyDir(s, d);
-      else fs.copyFileSync(s, d);
+      if (fs.statSync(s).isDirectory()) n += copyDir(s, d);
+      else {
+        fs.copyFileSync(s, d);
+        n += 1;
+      }
     }
-    log("✓ 文件已复制");
+    log(`✓ 文件已覆盖（${n} 项）`);
   } else {
-    log(`[dry-run] 将复制 ${SHIP.join(", ")} → ${TARGET}`);
+    log(`[dry-run] 将覆盖 ${SHIP.join(", ")} → ${TARGET}`);
   }
 
   // 2) 写 patch

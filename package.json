@@ -27,7 +27,7 @@
     "e2e": "node scripts/e2e.mjs",
     "probe": "node scripts/probe-waterfall.mjs && node scripts/probe-reentry.mjs",
     "verify": "node install.mjs --verify",
-    "install": "node install.mjs"
+    "setup": "node install.mjs"
   },
   "keywords": [
     "dsh",
