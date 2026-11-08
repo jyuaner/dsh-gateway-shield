@@ -1,0 +1,25 @@
+# dsh-gateway-shield bundle patch
+#
+# 把本插件挂到 profile 上。`dsh.bundle` 在 package.json 里声明了这个文件，
+# 所以插件管理器（设置 → 插件）装上就能识别、能开关，不再需要手改配置。
+#
+# 挂在 llm/stream：provider 无关，WorkBuddy / Qoder / 以后新增的都自动覆盖。
+#
+# 配置项说明见 README。默认值即推荐值：
+#   sanitize       出网前清洗网关指纹（11128）
+#   refusalRetry   软拒绝时带加固段重试
+#   retryMax       最多重试几次
+#   providers      [] = 全部 provider
+- insert:
+    - id: dsh-gateway-shield
+      name: dsh-gateway-shield
+      config:
+        enabled: true
+        sanitize: true
+        refusalRetry: true
+        retryMax: 2
+        bufferChars: 480
+        providers: []
+        paranoid: false
+        zeroWidth: false
+        verbose: false

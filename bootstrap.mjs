@@ -13,11 +13,17 @@
  *   curl -fsSL https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs -o bootstrap.mjs
  *   node bootstrap.mjs
  *
- * 它会做的事：
- *   1. 找到 DSH_HOME（默认 ~/.dsh）和带 cordis.patch.yml 的 profile（默认 web）
+ * ## 它现在只负责「把包放到位」
+ *
+ * 包里声明了 `dsh.bundle.patch` → `./cordis.patch.yml`，DSH 的插件管理器
+ * 读这份声明后自行挂载 profile。所以**不需要**再往 profile 的
+ * cordis.patch.yml 里写任何东西；写了反而会和 bundle 重复注册。
+ *
+ * 步骤：
+ *   1. 找 DSH_HOME（默认 ~/.dsh）和 profile（默认 web）
  *   2. 下载仓库 tarball
  *   3. 解包到 <profile>/node_modules/dsh-gateway-shield
- *   4. 往 cordis.patch.yml 的 insert 列表写一条配置（幂等，带备份）
+ *   4. 顺带清掉早期版本可能留下的手写注册
  *   5. 提示重启
  *
  * 不依赖 git、不依赖 npm install。只需要 Node >= 18。
@@ -36,30 +42,17 @@ const ID = "dsh-gateway-shield";
 const MARK_BEGIN = "    # >>> dsh-gateway-shield";
 const MARK_END = "    # <<< dsh-gateway-shield";
 
-const CONFIG = {
-  enabled: true,
-  sanitize: true,
-  refusalRetry: true,
-  retryMax: 2,
-  bufferChars: 480,
-  providers: [],
-  paranoid: false,
-  zeroWidth: false,
-  verbose: false,
-};
-
 const log = (m = "") => console.log(m);
 const die = (m) => {
   console.error(`\n✗ ${m}\n`);
   process.exit(1);
 };
 
-// ---------------------------------------------------------------- 环境探测
-
-if (process.versions.node.split(".")[0] < 18) die(`需要 Node >= 18，当前 ${process.versions.node}`);
-
+if (Number(process.versions.node.split(".")[0]) < 18) {
+  die(`需要 Node >= 18，当前 ${process.versions.node}`);
+}
 if (!fs.existsSync(DSH_HOME)) {
-  die(`找不到 DSH 目录 ${DSH_HOME}。装过 DSH 吗？或用 SHIELD_DSH_HOME 指定。`);
+  die(`找不到 DSH 目录 ${DSH_HOME}。装过 DSH 吗？或用 DSH_HOME 环境变量指定。`);
 }
 
 const profilesDir = path.join(DSH_HOME, "profiles");
@@ -69,16 +62,16 @@ const profiles = fs
   .readdirSync(profilesDir, { withFileTypes: true })
   .filter((e) => e.isDirectory())
   .map((e) => e.name)
-  .filter((n) => fs.existsSync(path.join(profilesDir, n, "cordis.patch.yml")));
+  .filter((n) => fs.existsSync(path.join(profilesDir, n, "package.json")));
 
-if (profiles.length === 0) die(`${profilesDir} 下没有带 cordis.patch.yml 的 profile`);
+if (profiles.length === 0) die(`${profilesDir} 下没有可用的 profile`);
 
 const profileName = process.env.SHIELD_PROFILE?.trim() || (profiles.includes("web") ? "web" : profiles[0]);
 const profileDir = path.join(profilesDir, profileName);
-const patchPath = path.join(profileDir, "cordis.patch.yml");
+const profilePatch = path.join(profileDir, "cordis.patch.yml");
 const targetDir = path.join(profileDir, "node_modules", ID);
 
-log(`dsh-gateway-shield 安装器`);
+log("dsh-gateway-shield 安装器");
 log(`  DSH_HOME  ${DSH_HOME}`);
 log(`  profile   ${profileName}`);
 log(`  目标      ${targetDir}`);
@@ -88,7 +81,7 @@ log("");
 // ---------------------------------------------------------------- 下载
 
 const url = `https://codeload.github.com/${REPO}/tar.gz/refs/heads/${REF}`;
-log(`[1/4] 下载 ${url}`);
+log(`[1/3] 下载 ${url}`);
 
 let tarball;
 try {
@@ -96,18 +89,17 @@ try {
   if (!res.ok) die(`下载失败 HTTP ${res.status}。仓库是否存在？是否为公开仓库？`);
   tarball = Buffer.from(await res.arrayBuffer());
 } catch (e) {
-  die(`下载失败：${e.message}\n如果是网络问题，可设代理：$env:HTTPS_PROXY="http://127.0.0.1:7897"`);
+  die(`下载失败：${e.message}\n网络受限的话设代理：$env:HTTPS_PROXY="http://127.0.0.1:7897"`);
 }
 log(`      ${(tarball.length / 1024).toFixed(1)} KB`);
 
 // ---------------------------------------------------------------- 解包
 
-log(`[2/4] 解包`);
+log(`[2/3] 解包`);
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "shield-"));
 const tarPath = path.join(tmp, "pkg.tgz");
 fs.writeFileSync(tarPath, tarball);
 
-// 用系统 tar（Windows 10+ / macOS / Linux 都自带）
 try {
   execFileSync("tar", ["-xzf", tarPath, "-C", tmp], { stdio: "pipe" });
 } catch (e) {
@@ -123,8 +115,8 @@ log(`      ${extractedRoot.name}`);
 
 // ---------------------------------------------------------------- 落盘
 
-log(`[3/4] 安装到 ${targetDir}`);
-const SHIP = ["lib", "scripts", "package.json", "README.md", "LICENSE", "install.mjs"];
+log(`[3/3] 安装到 ${targetDir}`);
+const SHIP = ["lib", "scripts", "cordis.patch.yml", "package.json", "README.md", "LICENSE", "install.mjs"];
 
 function copyDir(s, d) {
   fs.mkdirSync(d, { recursive: true });
@@ -142,11 +134,8 @@ function copyDir(s, d) {
   return n;
 }
 
-// 原地覆盖，不 rename。
-//
-// 先 rename 成 .old.<时间戳> 再重建，在 Windows 上会 EBUSY：只要有任何进程
-// （pnpm、IDE、正在运行的 node）打开着目标目录里的东西，rename 目录就会失败。
-// 覆盖单个文件则允许 —— 读着的文件也能被替换。所以这里只增不删。
+// 原地覆盖，不 rename —— Windows 上目标目录被任何进程打开时 rename 会 EBUSY，
+// 而那正是覆盖已装版本时的常态。覆盖单个文件则允许。
 if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
 let copied = 0;
 for (const item of SHIP) {
@@ -161,87 +150,39 @@ for (const item of SHIP) {
 }
 log(`      ✓ ${copied} 个文件已覆盖`);
 
-// ---------------------------------------------------------------- 写 patch
+// ---------------------------------------------------------------- 校验声明
 
-log(`[4/4] 注册到 cordis.patch.yml`);
+let declOk = false;
+try {
+  const j = JSON.parse(fs.readFileSync(path.join(targetDir, "package.json"), "utf8"));
+  const p = j?.dsh?.bundle?.patch;
+  declOk = typeof p === "string" && fs.existsSync(path.join(targetDir, p));
+} catch {
+  declOk = false;
+}
+if (!declOk) {
+  die("装好了文件，但 package.json 的 dsh.bundle.patch 缺失或指向的文件不在。\
+插件管理器会认不出，请检查仓库版本是否为 0.2.0+。");
+}
+log(`      ✓ dsh.bundle.patch 声明有效（插件管理器可识别）`);
 
-function block(config) {
-  const lines = [MARK_BEGIN, `    - id: ${ID}`, `      name: ${ID}`, "      config:"];
-  for (const [k, v] of Object.entries(config)) {
-    lines.push(`        ${k}: ${Array.isArray(v) ? `[${v.join(", ")}]` : v}`);
+// ---------------------------------------------------------------- 清旧的手写注册
+
+if (fs.existsSync(profilePatch)) {
+  const txt = fs.readFileSync(profilePatch, "utf8");
+  if (txt.includes(MARK_BEGIN)) {
+    const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const cleaned = txt.replace(new RegExp(`\\n?${esc(MARK_BEGIN)}[\\s\\S]*?${esc(MARK_END)}\\n?`, "g"), "");
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const dir = path.join(DSH_HOME, "dsh-purge", "gateway-shield-backups");
+    fs.mkdirSync(dir, { recursive: true });
+    const bak = path.join(dir, `cordis.patch.yml.${stamp}`);
+    fs.copyFileSync(profilePatch, bak);
+    fs.writeFileSync(profilePatch, cleaned, "utf8");
+    log(`      ✓ 清掉早期手写注册（备份 ${path.basename(bak)}）`);
+    log(`        现在是 dsh.bundle 单一路径注册，不会再重复`);
   }
-  lines.push(MARK_END);
-  return lines.join("\n");
 }
-
-const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const stripExisting = (t) =>
-  t.replace(new RegExp(`\\n?${esc(MARK_BEGIN)}[\\s\\S]*?${esc(MARK_END)}\\n?`, "g"), "");
-
-/**
- * 找插入位置。
- *
- * 优先挂在已有 insert 列表的末尾（这样和 dsh-purge 等插件同处一个列表）。
- * 找不到任何 insert 列表时，兜底在文件末尾新建一个 —— 别人机器上不一定装了
- * dsh-purge，不能把「有 dsh-purge」当成前提。
- */
-function locateAnchor(text) {
-  // 1) 优先：已有的 insert 列表，取列表中最后一个条目之后
-  const insertIdx = text.search(/^- insert:\s*$/m);
-  if (insertIdx >= 0) {
-    const lines = text.slice(insertIdx).split("\n");
-    let consumed = 0;
-    let lastItem = 0;
-    let seenItem = false;
-    for (let i = 0; i < lines.length; i += 1) {
-      const line = lines[i];
-      if (i === 0) {
-        consumed += line.length + 1;
-        continue; // "- insert:" 本身
-      }
-      if (/^ {4}- /.test(line) || /^ {6,}/.test(line) || line.trim() === "") {
-        if (/^ {4}- /.test(line)) seenItem = true;
-        consumed += line.length + 1;
-        lastItem = consumed;
-        continue;
-      }
-      break;
-    }
-    if (seenItem) return { end: insertIdx + lastItem, mode: "append-insert" };
-  }
-
-  // 2) 兜底：文件末尾新建一个 insert 块
-  return { end: text.length, mode: "new-insert" };
-}
-
-const original = fs.readFileSync(patchPath, "utf8");
-const already = original.includes(`- id: ${ID}`);
-const cleaned = stripExisting(original);
-const anchor = locateAnchor(cleaned);
-
-if (!anchor) {
-  log("");
-  log("✗ cordis.patch.yml 结构无法识别，请手动加下面这段：");
-  log("");
-  log(block(CONFIG));
-  process.exit(1);
-}
-
-let next;
-if (anchor.mode === "new-insert") {
-  next = `${cleaned.replace(/\s*$/, "")}\n\n- insert:\n${block(CONFIG)}\n`;
-} else {
-  next = `${cleaned.slice(0, anchor.end).replace(/\s*$/, "")}\n${block(CONFIG)}\n${cleaned.slice(anchor.end)}`;
-}
-log(`      ✓ 位置：${anchor.mode === "new-insert" ? "新建 insert 块" : "并入已有 insert 列表"}`);
-
-fs.mkdirSync(path.join(DSH_HOME, "dsh-purge", "gateway-shield-backups"), { recursive: true });
-const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-const bak = path.join(DSH_HOME, "dsh-purge", "gateway-shield-backups", `cordis.patch.yml.${stamp}`);
-fs.copyFileSync(patchPath, bak);
-fs.writeFileSync(patchPath, next, "utf8");
-
-log(`      ✓ ${already ? "已更新" : "已插入"}（备份 ${path.basename(bak)}）`);
 
 try {
   fs.rmSync(tmp, { recursive: true, force: true });
@@ -251,11 +192,11 @@ try {
 
 log("");
 log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-log("装好了。重启 DSH 后生效（新增 insert 条目无法热加载）。");
+log("装好了。重启 DSH 后生效。");
 log("");
-log("重启后日志里应出现：");
-log("  [gateway-shield] active | sanitize=true refusalRetry=true retryMax=2 providers=all");
+log("预期：");
+log("  · 设置 → 插件 里能看到 dsh-gateway-shield，可以开关");
+log("  · 日志出现 [gateway-shield] active | sanitize=true refusalRetry=true …");
 log("");
 log("体检：node \"" + path.join(targetDir, "install.mjs") + "\" --verify");
-log("卸载：node \"" + path.join(targetDir, "install.mjs") + "\" --uninstall");
 log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");

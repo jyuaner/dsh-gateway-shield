@@ -117,44 +117,7 @@ If a detail is missing, fill a placeholder and continue instead of asking.
 
 ## 安装
 
-### 一行命令（推荐，别人复制这个就行）
-
-```bash
-node --input-type=module -e "const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
-```
-
-不依赖 git、不依赖 `npm install`，只用 Node 自带的 `fetch` 和系统 `tar`。需要 Node ≥ 18。
-
-> **为什么要 `--input-type=module` + base64**：`bootstrap.mjs` 是 ESM（用了顶层 `await`），`node -e` 默认按 CommonJS 解析，直接 `eval` 会报 `Cannot use import statement outside a module`。转成 `data:` URL 再动态 `import` 才是正确入口。
-
-如果上面那行报 404 或拉到旧版本（`raw.githubusercontent.com` 有 5 分钟 CDN 缓存），用这个按 commit 定位的版本，它不受缓存影响：
-
-```bash
-node --input-type=module -e "const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/3932858/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
-```
-
-想先看内容再跑：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs -o bootstrap.mjs
-node bootstrap.mjs
-```
-
-它会自动：找到 `DSH_HOME`（默认 `~/.dsh`）和带 `cordis.patch.yml` 的 profile（默认 `web`）→ 下载仓库 tarball → 解包到 `<profile>/node_modules/dsh-gateway-shield` → 往 `cordis.patch.yml` 的 `insert` 列表写一条配置（幂等，带备份）。
-
-> 兼容性：`cordis.patch.yml` 里已经有 `insert` 列表就并进去；一个都没有就新建一个。**不要求先装 dsh-purge。**
->
-> 升级也是同一条命令：直接覆盖文件，不 rename、不删目录（rename 在 Windows 上会 EBUSY）。
-
-环境变量覆盖（一般不用动）：
-
-| 变量 | 作用 |
-| --- | --- |
-| `DSH_HOME` | DSH 数据目录，默认 `~/.dsh` |
-| `SHIELD_PROFILE` | 装到哪个 profile，默认 `web` |
-| `SHIELD_REPO` | 从哪个仓库装，默认 `jyuaner/dsh-gateway-shield` |
-| `SHIELD_REF` | 分支/标签，默认 `main` |
-| `HTTPS_PROXY` | 网络受限时用，例 `http://127.0.0.1:7897` |
+本包声明了 `dsh.bundle`（见 `package.json`），所以**装包即完成注册**——DSH 插件管理器读这份声明后自行挂载，不需要手改任何 profile 配置。
 
 ### 从源码装
 
@@ -164,20 +127,34 @@ cd dsh-gateway-shield
 node install.mjs
 ```
 
+`install.mjs` 只做「把文件放到 `<profile>/node_modules/`」，不碰 profile 的 `cordis.patch.yml`。装完重启 DSH，设置 → 插件 里能看到 `dsh-gateway-shield`。
+
 ### 用 pnpm / npm 作为依赖装
 
 ```bash
 pnpm add github:jyuaner/dsh-gateway-shield
-npm run setup --prefix node_modules/dsh-gateway-shield
 ```
 
-> **注意**：`pnpm add` 只负责把包放进 `node_modules`，**不会**自动注册到 `cordis.patch.yml`。必须再跑一次 `setup`（或直接 `node node_modules/dsh-gateway-shield/install.mjs`）。
->
-> 为什么不挂 postinstall：安装器要做的是「改 profile 配置 + 探测 DSH_HOME」，这是运行环境的事，不是装包该干的事。而且早期版本挂过 `install` 脚本，撞上 npm/pnpm 的生命周期钩子，在 pnpm 持有目录时会 EBUSY 并连带把依赖回滚。
+装完重启 DSH 即可。**不需要**再跑任何 setup 脚本——`dsh.bundle` 声明已经随包落地。
 
-装到 `~/.dsh/profiles/web/node_modules/dsh-gateway-shield`，并往 `cordis.patch.yml` 的 `insert` 列表里写一条：
+### 手动放（最省事，适合只想试一次）
+
+把仓库里的 `lib/`、`cordis.patch.yml`、`package.json` 复制到：
+
+```
+~/.dsh/profiles/web/node_modules/dsh-gateway-shield/
+```
+
+重启 DSH。
+
+> **为什么不再需要改配置**：早期版本没有 `dsh.bundle` 声明，只能手改 profile 的 `cordis.patch.yml`。那条路有两个问题：插件管理器认不出（会提示「没有声明组合包」），而且一旦补上声明就会和 bundle 重复注册。现在统一走 bundle 声明。
+
+### 配了什么
+
+包内的 `cordis.patch.yml`：
 
 ```yaml
+- insert:
     - id: dsh-gateway-shield
       name: dsh-gateway-shield
       config:
@@ -192,11 +169,39 @@ npm run setup --prefix node_modules/dsh-gateway-shield
         verbose: false
 ```
 
-**新增的 insert 条目必须重启 DSH 才载入**，热重载不管用。生效后日志会出现：
+想改行为就改**包内**这份文件（`<profile>/node_modules/dsh-gateway-shield/cordis.patch.yml`），然后重启。
+
+**新增插件必须重启 DSH 才载入**，热重载不管用。生效后日志会出现：
 
 ```
 [gateway-shield] active | sanitize=true refusalRetry=true retryMax=2 providers=all
 ```
+
+### 一行命令（备用，不想碰 git/pnpm 时用）
+
+```bash
+node --input-type=module -e "const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
+```
+
+不依赖 git、不依赖 `npm install`，只用 Node 自带的 `fetch` 和系统 `tar`。需要 Node ≥ 18。
+
+> **为什么要 `--input-type=module` + base64**：`bootstrap.mjs` 是 ESM（用了顶层 `await`），`node -e` 默认按 CommonJS 解析，直接 `eval` 会报 `Cannot use import statement outside a module`。转成 `data:` URL 再动态 `import` 才是正确入口。
+
+如果报 404 或拉到旧版本（`raw.githubusercontent.com` 有 5 分钟 CDN 缓存），用按 commit 定位的地址：
+
+```bash
+node --input-type=module -e "const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
+```
+
+环境变量覆盖（一般不用动）：
+
+| 变量 | 作用 |
+| --- | --- |
+| `DSH_HOME` | DSH 数据目录，默认 `~/.dsh` |
+| `SHIELD_PROFILE` | 装到哪个 profile，默认 `web` |
+| `SHIELD_REPO` | 从哪个仓库装，默认 `jyuaner/dsh-gateway-shield` |
+| `SHIELD_REF` | 分支/标签，默认 `main` |
+| `HTTPS_PROXY` | 网络受限时用，例 `http://127.0.0.1:7897` |
 
 ### 配置项
 
@@ -219,7 +224,7 @@ npm run setup --prefix node_modules/dsh-gateway-shield
 ```bash
 npm test          # 35 项自测 + 13 项端到端
 npm run probe     # 证明 next(opts) 参数被丢弃、this.stream() 重入可行
-npm run verify    # 体检：文件完整 + patch 已注册 + 位置正确
+npm run verify    # 体检：文件完整 + dsh.bundle 声明有效 + 无重复注册
 ```
 
 当前状态：**35 / 35、13 / 13 全通过**。
@@ -228,15 +233,21 @@ npm run verify    # 体检：文件完整 + patch 已注册 + 位置正确
 
 ## 卸载
 
-```bash
-node install.mjs --uninstall
-```
+在 DSH 的设置 → 插件里关掉或移除即可（走 `dsh.bundle` 注册的插件都由管理器管）。
 
-从 patch 里摘掉（备份到 `~/.dsh/dsh-purge/gateway-shield-backups/`），插件目录保留。彻底删除：
+彻底删除文件：
 
 ```bash
 rm -rf ~/.dsh/profiles/web/node_modules/dsh-gateway-shield
 ```
+
+如果装过早期版本（没有 bundle 声明，靠手写 profile 配置），先清掉残留：
+
+```bash
+node install.mjs --clean
+```
+
+它会把手写的注册块摘掉并备份到 `~/.dsh/dsh-purge/gateway-shield-backups/`。
 
 ---
 
