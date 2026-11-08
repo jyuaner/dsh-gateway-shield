@@ -112,22 +112,36 @@ function stripExisting(text) {
   return text.replace(new RegExp(`\\n?${esc(MARK_BEGIN)}[\\s\\S]*?${esc(MARK_END)}\\n?`, "g"), "");
 }
 
-/** 找 dsh-purge 那个 insert 列表的末尾，把 shield 挂在同一列表。 */
+/**
+ * 找插入位置。
+ *
+ * 优先并入已有的 insert 列表；没有 insert 列表就在文件末尾新建一个。
+ * 不把「装了 dsh-purge」当成前提 —— 别人机器上不一定有。
+ */
 function locateAnchor(text) {
-  const purgeIdx = text.indexOf("    - id: dsh-purge\n");
-  if (purgeIdx < 0) return null;
-  const lines = text.slice(purgeIdx).split("\n");
-  let consumed = 0;
-  let lastItemLine = 0;
-  for (const line of lines) {
-    consumed += line.length + 1;
-    if (/^    - id: /.test(line) || /^      /.test(line) || /^        /.test(line) || line.trim() === "") {
-      lastItemLine = consumed;
-      continue;
+  const insertIdx = text.search(/^- insert:\s*$/m);
+  if (insertIdx >= 0) {
+    const lines = text.slice(insertIdx).split("\n");
+    let consumed = 0;
+    let lastItemLine = 0;
+    let seenItem = false;
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i];
+      if (i === 0) {
+        consumed += line.length + 1;
+        continue;
+      }
+      if (/^ {4}- /.test(line) || /^ {6,}/.test(line) || line.trim() === "") {
+        if (/^ {4}- /.test(line)) seenItem = true;
+        consumed += line.length + 1;
+        lastItemLine = consumed;
+        continue;
+      }
+      break;
     }
-    break;
+    if (seenItem) return { end: insertIdx + lastItemLine, mode: "append-insert" };
   }
-  return { end: purgeIdx + lastItemLine };
+  return { end: text.length, mode: "new-insert" };
 }
 
 /** 递归复制，跳过 node_modules / .git / 备份。返回复制的文件数。 */
@@ -218,17 +232,15 @@ function install() {
   // 2) 写 patch
   const original = fs.readFileSync(profile.patch, "utf8");
   const already = original.includes(`- id: ${ID}`);
+  const sanitized = original.replace(/!!js\s+[^\n]+/g, "null");
   const text = stripExisting(original);
   const anchor = locateAnchor(text);
-  if (!anchor) {
-    log("");
-    log("✗ 找不到插入锚点（dsh-purge 条目）。请手动把下面这段加到 cordis.patch.yml 的某个 insert: 列表里：");
-    log("");
-    log(block());
-    process.exit(1);
-  }
 
-  const next = `${text.slice(0, anchor.end).replace(/\s*$/, "")}\n${block()}\n${text.slice(anchor.end)}`;
+  const next =
+    anchor.mode === "new-insert"
+      ? `${text.replace(/\s*$/, "")}\n\n- insert:\n${block()}\n`
+      : `${text.slice(0, anchor.end).replace(/\s*$/, "")}\n${block()}\n${text.slice(anchor.end)}`;
+  if (!DRY) log(`✓ 位置：${anchor.mode === "new-insert" ? "新建 insert 块" : "并入已有 insert 列表"}`);
 
   if (DRY) {
     log(`[dry-run] 将${already ? "更新" : "插入"} cordis.patch.yml`);

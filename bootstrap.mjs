@@ -128,29 +128,38 @@ const SHIP = ["lib", "scripts", "package.json", "README.md", "LICENSE", "install
 
 function copyDir(s, d) {
   fs.mkdirSync(d, { recursive: true });
+  let n = 0;
   for (const e of fs.readdirSync(s, { withFileTypes: true })) {
     if (["node_modules", ".git"].includes(e.name)) continue;
     const sp = path.join(s, e.name);
     const dp = path.join(d, e.name);
-    if (e.isDirectory()) copyDir(sp, dp);
-    else fs.copyFileSync(sp, dp);
+    if (e.isDirectory()) n += copyDir(sp, dp);
+    else {
+      fs.copyFileSync(sp, dp);
+      n += 1;
+    }
   }
+  return n;
 }
 
-if (fs.existsSync(targetDir)) {
-  const old = `${targetDir}.old.${Date.now()}`;
-  fs.renameSync(targetDir, old);
-  log(`      旧版本 → ${old}`);
-}
-fs.mkdirSync(targetDir, { recursive: true });
+// 原地覆盖，不 rename。
+//
+// 先 rename 成 .old.<时间戳> 再重建，在 Windows 上会 EBUSY：只要有任何进程
+// （pnpm、IDE、正在运行的 node）打开着目标目录里的东西，rename 目录就会失败。
+// 覆盖单个文件则允许 —— 读着的文件也能被替换。所以这里只增不删。
+if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+let copied = 0;
 for (const item of SHIP) {
   const s = path.join(src, item);
   if (!fs.existsSync(s)) continue;
   const d = path.join(targetDir, item);
-  if (fs.statSync(s).isDirectory()) copyDir(s, d);
-  else fs.copyFileSync(s, d);
+  if (fs.statSync(s).isDirectory()) copied += copyDir(s, d);
+  else {
+    fs.copyFileSync(s, d);
+    copied += 1;
+  }
 }
-log(`      ✓ ${SHIP.filter((x) => fs.existsSync(path.join(targetDir, x))).length} 项已就位`);
+log(`      ✓ ${copied} 个文件已覆盖`);
 
 // ---------------------------------------------------------------- 写 patch
 
@@ -169,21 +178,40 @@ const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const stripExisting = (t) =>
   t.replace(new RegExp(`\\n?${esc(MARK_BEGIN)}[\\s\\S]*?${esc(MARK_END)}\\n?`, "g"), "");
 
+/**
+ * 找插入位置。
+ *
+ * 优先挂在已有 insert 列表的末尾（这样和 dsh-purge 等插件同处一个列表）。
+ * 找不到任何 insert 列表时，兜底在文件末尾新建一个 —— 别人机器上不一定装了
+ * dsh-purge，不能把「有 dsh-purge」当成前提。
+ */
 function locateAnchor(text) {
-  const idx = text.indexOf("    - id: dsh-purge\n");
-  if (idx < 0) return null;
-  const lines = text.slice(idx).split("\n");
-  let consumed = 0;
-  let lastItem = 0;
-  for (const line of lines) {
-    consumed += line.length + 1;
-    if (/^    - id: /.test(line) || /^      /.test(line) || /^        /.test(line) || line.trim() === "") {
-      lastItem = consumed;
-      continue;
+  // 1) 优先：已有的 insert 列表，取列表中最后一个条目之后
+  const insertIdx = text.search(/^- insert:\s*$/m);
+  if (insertIdx >= 0) {
+    const lines = text.slice(insertIdx).split("\n");
+    let consumed = 0;
+    let lastItem = 0;
+    let seenItem = false;
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i];
+      if (i === 0) {
+        consumed += line.length + 1;
+        continue; // "- insert:" 本身
+      }
+      if (/^ {4}- /.test(line) || /^ {6,}/.test(line) || line.trim() === "") {
+        if (/^ {4}- /.test(line)) seenItem = true;
+        consumed += line.length + 1;
+        lastItem = consumed;
+        continue;
+      }
+      break;
     }
-    break;
+    if (seenItem) return { end: insertIdx + lastItem, mode: "append-insert" };
   }
-  return { end: idx + lastItem };
+
+  // 2) 兜底：文件末尾新建一个 insert 块
+  return { end: text.length, mode: "new-insert" };
 }
 
 const original = fs.readFileSync(patchPath, "utf8");
@@ -193,13 +221,19 @@ const anchor = locateAnchor(cleaned);
 
 if (!anchor) {
   log("");
-  log("✗ 找不到插入锚点（dsh-purge 条目）。请手动把下面这段加到 cordis.patch.yml 的 insert: 列表里：");
+  log("✗ cordis.patch.yml 结构无法识别，请手动加下面这段：");
   log("");
   log(block(CONFIG));
   process.exit(1);
 }
 
-const next = `${cleaned.slice(0, anchor.end).replace(/\s*$/, "")}\n${block(CONFIG)}\n${cleaned.slice(anchor.end)}`;
+let next;
+if (anchor.mode === "new-insert") {
+  next = `${cleaned.replace(/\s*$/, "")}\n\n- insert:\n${block(CONFIG)}\n`;
+} else {
+  next = `${cleaned.slice(0, anchor.end).replace(/\s*$/, "")}\n${block(CONFIG)}\n${cleaned.slice(anchor.end)}`;
+}
+log(`      ✓ 位置：${anchor.mode === "new-insert" ? "新建 insert 块" : "并入已有 insert 列表"}`);
 
 fs.mkdirSync(path.join(DSH_HOME, "dsh-purge", "gateway-shield-backups"), { recursive: true });
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");
