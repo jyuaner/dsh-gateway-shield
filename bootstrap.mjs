@@ -3,10 +3,14 @@
  * 一行命令从 GitHub 安装 dsh-gateway-shield 到本地 DSH。
  *
  * 用法（别人复制这一行就能装）：
- *   node -e "fetch('https://raw.githubusercontent.com/<owner>/dsh-gateway-shield/main/bootstrap.mjs').then(r=>r.text()).then(eval)"
+ *   node --input-type=module -e "const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
+ *
+ * 为什么要 base64 转 data: URL：本文件是 ESM（用了顶层 await / import），
+ * `node -e` 默认按 CommonJS 解析，`eval` 跑不了 import。用 data: URL 动态
+ * import 才能正确进入 ESM 上下文。Windows PowerShell 里也不会被引号转义搞乱。
  *
  * 或者更稳的（先下载再跑，可看清内容）：
- *   curl -fsSL https://raw.githubusercontent.com/<owner>/dsh-gateway-shield/main/bootstrap.mjs -o bootstrap.mjs
+ *   curl -fsSL https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs -o bootstrap.mjs
  *   node bootstrap.mjs
  *
  * 它会做的事：
@@ -24,7 +28,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 
 const HOME = os.homedir();
-const REPO = process.env.SHIELD_REPO?.trim() || "dsh-gateway-shield/dsh-gateway-shield";
+const REPO = process.env.SHIELD_REPO?.trim() || "jyuaner/dsh-gateway-shield";
 const REF = process.env.SHIELD_REF?.trim() || "main";
 const DSH_HOME = process.env.DSH_HOME?.trim() || path.join(HOME, ".dsh");
 const ID = "dsh-gateway-shield";
