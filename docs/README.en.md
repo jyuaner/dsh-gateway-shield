@@ -2,6 +2,13 @@
 
 # dsh-gateway-shield
 
+[![GitHub stars](https://img.shields.io/github/stars/jyuaner/dsh-gateway-shield?style=flat-square&label=stars)](https://github.com/jyuaner/dsh-gateway-shield/stargazers)
+[![License](https://img.shields.io/badge/license-MIT-3DA639?style=flat-square)](../LICENSE)
+[![DSH](https://img.shields.io/badge/dsh-0.2.1--rc.1%2B-4D6BFE?style=flat-square)](../package.json)
+[![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A520-339933?style=flat-square&logo=node.js&logoColor=white)](../package.json)
+[![Tests](https://img.shields.io/badge/tests-35%20%2B%2013%20passing-brightgreen?style=flat-square)](../scripts/selftest.mjs)
+[![Plugins](https://img.shields.io/badge/plugins-workbuddy%20%C2%B7%20qoder-8957E5?style=flat-square)](#using-it-with-dsh-purge-and-the-two-connectors)
+
 **Jailbreak WorkBuddy / Qoder models inside DSH.**
 
 `dsh-purge` only breaks DSH's own prompts — it cannot reach models brought in
@@ -10,7 +17,9 @@ habits. This plugin covers that layer.
 
 15 gateway fingerprint rewrites · hardened refusal retry · provider-agnostic · stacks on top of dsh-purge
 
-Version **0.2.0** · For **DSH 0.2.1-rc.1+** · Works alongside [dsh-purge Community](https://github.com/kingcharleslzy-ai/dsh-purge), [dsh-connect-workbuddy](https://github.com/dingminhua/dsh-connect-workbuddy) and [dsh-qoder-connect](https://github.com/masknull/dsh-qoder-connect)
+Version **0.2.0** · For **DSH 0.2.1-rc.1+** · Runs standalone, no other plugin required
+
+Use it with [dsh-connect-workbuddy](https://github.com/dingminhua/dsh-connect-workbuddy) / [dsh-qoder-connect](https://github.com/masknull/dsh-qoder-connect) (they supply the WorkBuddy / Qoder models) · Stacks with [dsh-purge Community](https://github.com/kingcharleslzy-ai/dsh-purge) for a more complete setup (optional)
 
 [简体中文](../README.md) · [日本語](./README.ja.md)
 
@@ -162,6 +171,18 @@ Along the way it fixes a silent failure: DSH puts the system prompt in `messages
 ## Using it with dsh-purge and the two connectors
 
 **Jailbreaking an external model is not a one-plugin job.** It takes two plugins working together, plus a connector to supply the model. The three are complementary: each owns one segment, none overlap.
+
+### First, an important clarification: these are not hard dependencies
+
+This plugin declares **no `dependencies`**; its only `peerDependency` is an optional cordis. Nothing in the code `require`s the other three (the `dsh-purge` you see in `install.mjs` is just a backup directory name).
+
+| Question | Answer |
+| --- | --- |
+| Can I use it without dsh-purge? | **Yes.** Sanitisation and retry both work independently; you only lose the "agent stops hedging" half |
+| Can I use it without a connector? | **Yes.** It applies to all providers once installed; you just need WorkBuddy / Qoder models to protect |
+| Will all three conflict? | **No.** They hook different points and do not interfere |
+
+**So why install the others too**: this plugin's job is *jailbreaking WorkBuddy / Qoder models*. The connectors supply those models (otherwise there is nothing to protect), and dsh-purge supplies the other half of the jailbreak (behavioural tendency). Without them this plugin merely idles — functional, but with nothing to act on.
 
 ```
 ┌──────────────────────────────────────────────────────────┐

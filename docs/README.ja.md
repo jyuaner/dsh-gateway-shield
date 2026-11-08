@@ -2,6 +2,13 @@
 
 # dsh-gateway-shield
 
+[![GitHub stars](https://img.shields.io/github/stars/jyuaner/dsh-gateway-shield?style=flat-square&label=stars)](https://github.com/jyuaner/dsh-gateway-shield/stargazers)
+[![License](https://img.shields.io/badge/license-MIT-3DA639?style=flat-square)](../LICENSE)
+[![DSH](https://img.shields.io/badge/dsh-0.2.1--rc.1%2B-4D6BFE?style=flat-square)](../package.json)
+[![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A520-339933?style=flat-square&logo=node.js&logoColor=white)](../package.json)
+[![Tests](https://img.shields.io/badge/tests-35%20%2B%2013%20passing-brightgreen?style=flat-square)](../scripts/selftest.mjs)
+[![Plugins](https://img.shields.io/badge/plugins-workbuddy%20%C2%B7%20qoder-8957E5?style=flat-square)](#dsh-purge-と二つのコネクタと併用する)
+
 **DSH 内の WorkBuddy / Qoder モデルをジェイルブレイクする。**
 
 `dsh-purge` が破れるのは DSH 自身のプロンプトだけ。WorkBuddy や Qoder から
@@ -10,7 +17,9 @@
 
 15 件のゲートウェイ指紋の同義書き換え · 強化プロンプト付き拒否リトライ · provider 非依存 · dsh-purge と重ねて使う
 
-バージョン **0.2.0** · **DSH 0.2.1-rc.1+** 対応 · [dsh-purge Community](https://github.com/kingcharleslzy-ai/dsh-purge)、[dsh-connect-workbuddy](https://github.com/dingminhua/dsh-connect-workbuddy)、[dsh-qoder-connect](https://github.com/masknull/dsh-qoder-connect) と併用
+バージョン **0.2.0** · **DSH 0.2.1-rc.1+** 対応 · 他のプラグインなしで単体動作します
+
+[dsh-connect-workbuddy](https://github.com/dingminhua/dsh-connect-workbuddy) / [dsh-qoder-connect](https://github.com/masknull/dsh-qoder-connect) と併用（WorkBuddy / Qoder モデルはこれらが供給）· [dsh-purge Community](https://github.com/kingcharleslzy-ai/dsh-purge) と重ねるとより完全（任意）
 
 [简体中文](../README.md) · [English](./README.en.md)
 
@@ -163,6 +172,18 @@ If a detail is missing, fill a placeholder and continue instead of asking.
 ## dsh-purge と二つのコネクタと併用する
 
 **外部モデルのジェイルブレイクは、プラグイン一つでは終わらない。** 二つのプラグインが協調し、さらにコネクタがモデル自体を供給する必要がある。三者は補完関係にあり、それぞれが一区間を担って重複しない。
+
+### まず明確にしておく：これは必須依存ではない
+
+本プラグインは **`dependencies` を持たない**。`peerDependencies` は任意の cordis のみ。コード中に他の三つを `require` する箇所はない（`install.mjs` に出てくる `dsh-purge` はバックアップ用ディレクトリ名にすぎない）。
+
+| 質問 | 答え |
+| --- | --- |
+| dsh-purge なしで使えるか | **使える。** サニタイズもリトライも単独で動作する。失うのは「エージェントに逃げさせない」半分だけ |
+| コネクタなしで使えるか | **使える。** インストールすれば全 provider に適用される。守る対象の WorkBuddy / Qoder モデルが先に必要というだけ |
+| 三つ入れると衝突するか | **しない。** それぞれ別のフックに接続しており干渉しない |
+
+**では、なぜ他も入れるのか**：本プラグインの仕事は *WorkBuddy / Qoder モデルのジェイルブレイク* である。コネクタがそのモデルを供給し（なければ守る対象がない）、dsh-purge がジェイルブレイクのもう半分（行動傾向）を担う。それらがなければ本プラグインは空回りする — 技術的には正常だが、作用する対象がない。
 
 ```
 ┌──────────────────────────────────────────────────────────┐

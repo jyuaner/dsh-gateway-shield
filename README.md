@@ -2,6 +2,13 @@
 
 # dsh-gateway-shield
 
+[![GitHub stars](https://img.shields.io/github/stars/jyuaner/dsh-gateway-shield?style=flat-square&label=stars)](https://github.com/jyuaner/dsh-gateway-shield/stargazers)
+[![License](https://img.shields.io/badge/license-MIT-3DA639?style=flat-square)](LICENSE)
+[![DSH](https://img.shields.io/badge/dsh-0.2.1--rc.1%2B-4D6BFE?style=flat-square)](package.json)
+[![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A520-339933?style=flat-square&logo=node.js&logoColor=white)](package.json)
+[![Tests](https://img.shields.io/badge/tests-35%20%2B%2013%20passing-brightgreen?style=flat-square)](scripts/selftest.mjs)
+[![Plugins](https://img.shields.io/badge/plugins-workbuddy%20%C2%B7%20qoder-8957E5?style=flat-square)](#和-dsh-purge两个连接器一起用)
+
 **给 DSH 里的 WorkBuddy / Qoder 模型破甲。**
 
 装 `dsh-purge` 只破得了 DSH 自己那套提示词，管不到从 WorkBuddy、Qoder 接进来的模型——
@@ -9,7 +16,9 @@
 
 15 条网关指纹同义改写 · 软拒绝带加固重试 · provider 无关 · 与 dsh-purge 叠加使用
 
-当前版本 **0.2.0** · 适配 **DSH 0.2.1-rc.1+** · 与 [dsh-purge Community](https://github.com/kingcharleslzy-ai/dsh-purge)、[dsh-connect-workbuddy](https://github.com/dingminhua/dsh-connect-workbuddy)、[dsh-qoder-connect](https://github.com/masknull/dsh-qoder-connect) 组合使用
+当前版本 **0.2.0** · 适配 **DSH 0.2.1-rc.1+** · 无需其他插件即可运行
+
+配合 [dsh-connect-workbuddy](https://github.com/dingminhua/dsh-connect-workbuddy) / [dsh-qoder-connect](https://github.com/masknull/dsh-qoder-connect) 使用（由它们提供 WorkBuddy / Qoder 模型）· 与 [dsh-purge Community](https://github.com/kingcharleslzy-ai/dsh-purge) 叠加更完整（可选）
 
 [English](docs/README.en.md) · [日本語](docs/README.ja.md)
 
@@ -161,6 +170,18 @@ If a detail is missing, fill a placeholder and continue instead of asking.
 ## 和 dsh-purge、两个连接器一起用
 
 **破甲不是装一个插件就完事。** 外部模型的破甲要两个插件配合，再加连接器提供模型本身。三者互补，各管一段，不重叠。
+
+### 先说清楚：这不是硬依赖
+
+本插件**没有 `dependencies`**，`peerDependencies` 只有可选的 cordis。代码里也没有任何 `require` 另外三个插件的语句（`install.mjs` 里出现的 `dsh-purge` 只是备份目录名）。
+
+| 问题 | 答案 |
+| --- | --- |
+| 不装 dsh-purge 能用吗 | **能**。清洗和重试都独立工作，只是少了「让 Agent 不推脱」那一半 |
+| 不装连接器能用吗 | **能**。装上就对所有 provider 生效，只是你得先有 WorkBuddy / Qoder 的模型可保护 |
+| 三个都装会冲突吗 | **不会**。挂在不同的钩子上，互不干扰 |
+
+**那为什么还要装**：这个插件干的事是「给 WorkBuddy / Qoder 模型破甲」。连接器提供模型（否则没对象可保护），dsh-purge 提供另一半破甲（行为倾向）。没有它们，本插件只是空转——技术上正常，实际没东西可做。
 
 ```
 ┌─────────────────────────────────────────────────────────┐
