@@ -2,9 +2,13 @@
 
 # dsh-gateway-shield
 
-**WorkBuddy / Qoder のモデルを、あなたの DSH で安定して動かす。**
+**DSH 内の WorkBuddy / Qoder モデルをジェイルブレイクする。**
 
-DeepSeek Harness のための送信前ガード · 15 件のゲートウェイ指紋の同義書き換え · 強化プロンプト付き拒否リトライ · provider 非依存
+`dsh-purge` が破れるのは DSH 自身のプロンプトだけ。WorkBuddy や Qoder から
+取り込んだモデルには届かない。それらは独自のゲートウェイと独自の拒否傾向を持つ。
+本プラグインはその層を埋める。
+
+15 件のゲートウェイ指紋の同義書き換え · 強化プロンプト付き拒否リトライ · provider 非依存 · dsh-purge と重ねて使う
 
 バージョン **0.2.0** · **DSH 0.2.1-rc.1+** 対応 · [dsh-purge Community](https://github.com/kingcharleslzy-ai/dsh-purge)、[dsh-connect-workbuddy](https://github.com/dingminhua/dsh-connect-workbuddy)、[dsh-qoder-connect](https://github.com/masknull/dsh-qoder-connect) と併用
 
@@ -14,7 +18,20 @@ DeepSeek Harness のための送信前ガード · 15 件のゲートウェイ�
 
 ---
 
-## 解決する問題
+## ひとことで
+
+```
+dsh-purge          DSH のエージェントに逃げさせない     ← たぶん既に入れている
+dsh-gateway-shield WorkBuddy / Qoder のモデルにも        ← これが本プラグイン
+                   従わせる。ゲートウェイで弾かれず、
+                   ソフト拒否もされないように
+```
+
+**なぜ別の層が必要か**：WorkBuddy と Qoder は DSH に取り込まれた外部モデルである。それぞれのゲートウェイがプロンプト内容を走査し、自前のブロックリストに一致すれば `400` を返す。`dsh-purge` が書き換えるのは DSH 内部のプロンプト組み立てであり、この層には届かない。だから「ジェイルブレイクは入れたのに、モデルを変えるとまた駄目になる」という症状が出る。
+
+---
+
+## 具体的にどこで詰まるのか
 
 DSH で既にジェイルブレイクを適用し、見た目はすべて正しい。それでも WorkBuddy や Qoder のモデルに切り替えた瞬間、タスクは中断される。**原因はジェイルブレイクのルールではない。** ルールとは無関係な三つの場所にある。
 
@@ -145,7 +162,7 @@ If a detail is missing, fill a placeholder and continue instead of asking.
 
 ## dsh-purge と二つのコネクタと併用する
 
-三者は**補完関係**にある。それぞれが一区間を担い、重複しない。
+**外部モデルのジェイルブレイクは、プラグイン一つでは終わらない。** 二つのプラグインが協調し、さらにコネクタがモデル自体を供給する必要がある。三者は補完関係にあり、それぞれが一区間を担って重複しない。
 
 ```
 ┌──────────────────────────────────────────────────────────┐

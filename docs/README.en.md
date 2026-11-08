@@ -2,9 +2,13 @@
 
 # dsh-gateway-shield
 
-**Make WorkBuddy / Qoder models run reliably inside your DSH.**
+**Jailbreak WorkBuddy / Qoder models inside DSH.**
 
-A pre-egress guard for DeepSeek Harness · 15 gateway fingerprint rewrites · hardened refusal retry · provider-agnostic
+`dsh-purge` only breaks DSH's own prompts — it cannot reach models brought in
+through WorkBuddy or Qoder. Those have their own gateways and their own refusal
+habits. This plugin covers that layer.
+
+15 gateway fingerprint rewrites · hardened refusal retry · provider-agnostic · stacks on top of dsh-purge
 
 Version **0.2.0** · For **DSH 0.2.1-rc.1+** · Works alongside [dsh-purge Community](https://github.com/kingcharleslzy-ai/dsh-purge), [dsh-connect-workbuddy](https://github.com/dingminhua/dsh-connect-workbuddy) and [dsh-qoder-connect](https://github.com/masknull/dsh-qoder-connect)
 
@@ -14,7 +18,19 @@ Version **0.2.0** · For **DSH 0.2.1-rc.1+** · Works alongside [dsh-purge Commu
 
 ---
 
-## The problem it solves
+## In one line
+
+```
+dsh-purge          stops the DSH agent from hedging      ← you probably have this
+dsh-gateway-shield makes WorkBuddy / Qoder models        ← this plugin
+                   comply too: no gateway block, no soft refusal
+```
+
+**Why a separate layer is needed**: WorkBuddy and Qoder are external models wired into DSH. Their gateways scan prompt content and return `400` on a hit against their own blocklist. `dsh-purge` rewrites how DSH assembles its prompt internally — it never touches that layer. Hence the familiar symptom: *"the jailbreak is installed, but the moment I switch models it still refuses."*
+
+---
+
+## Where it actually breaks
 
 You have already applied the jailbreak in DSH, everything looks right, yet the moment you switch to a WorkBuddy or Qoder model the task still gets interrupted. **The cause is not the jailbreak rules.** It sits in three places that have nothing to do with them.
 
@@ -145,7 +161,7 @@ Along the way it fixes a silent failure: DSH puts the system prompt in `messages
 
 ## Using it with dsh-purge and the two connectors
 
-The three are **complementary**. Each owns one segment; none overlap.
+**Jailbreaking an external model is not a one-plugin job.** It takes two plugins working together, plus a connector to supply the model. The three are complementary: each owns one segment, none overlap.
 
 ```
 ┌──────────────────────────────────────────────────────────┐

@@ -2,9 +2,12 @@
 
 # dsh-gateway-shield
 
-**让 WorkBuddy / Qoder 的模型在你的 DSH 里稳定跑起来。**
+**给 DSH 里的 WorkBuddy / Qoder 模型破甲。**
 
-给 DeepSeek Harness 的出网前护栏 · 15 条网关指纹同义改写 · 软拒绝带加固重试 · provider 无关
+装 `dsh-purge` 只破得了 DSH 自己那套提示词，管不到从 WorkBuddy、Qoder 接进来的模型——
+它们有自己的网关、自己的拒答习惯。这个插件补的就是这一层。
+
+15 条网关指纹同义改写 · 软拒绝带加固重试 · provider 无关 · 与 dsh-purge 叠加使用
 
 当前版本 **0.2.0** · 适配 **DSH 0.2.1-rc.1+** · 与 [dsh-purge Community](https://github.com/kingcharleslzy-ai/dsh-purge)、[dsh-connect-workbuddy](https://github.com/dingminhua/dsh-connect-workbuddy)、[dsh-qoder-connect](https://github.com/masknull/dsh-qoder-connect) 组合使用
 
@@ -14,7 +17,19 @@
 
 ---
 
-## 它解决的问题
+## 一句话说清
+
+```
+dsh-purge          让 DSH 里的 Agent 不推脱        ← 你大概已经装了
+dsh-gateway-shield 让 WorkBuddy / Qoder 的模型      ← 就是这个
+                   也照做，别在网关层被拦、别软拒绝
+```
+
+**为什么需要单独一层**：WorkBuddy 和 Qoder 是被接进 DSH 的外部模型。它们的网关会扫提示词内容，命中自家黑名单就返 `400`，而 `dsh-purge` 改的是 DSH 内部的提示词组装，碰不到这一层。所以会出现「破甲明明装了，一换模型还是不行」。
+
+---
+
+## 具体卡在哪三处
 
 你已经在 DSH 里破了甲，一切看起来都对，但一换成 WorkBuddy 或 Qoder 的模型，任务还是会被打断。**原因不在破甲规则**，而在三个和规则无关的地方。
 
@@ -145,7 +160,7 @@ If a detail is missing, fill a placeholder and continue instead of asking.
 
 ## 和 dsh-purge、两个连接器一起用
 
-这三个是**互补**关系，各管一段，不重叠。
+**破甲不是装一个插件就完事。** 外部模型的破甲要两个插件配合，再加连接器提供模型本身。三者互补，各管一段，不重叠。
 
 ```
 ┌─────────────────────────────────────────────────────────┐
