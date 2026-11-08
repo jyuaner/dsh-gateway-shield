@@ -1,0 +1,52 @@
+{
+  "name": "dsh-gateway-shield",
+  "version": "0.1.0",
+  "description": "DSH 出网前的提示词栅栏：网关指纹清洗 + 软拒绝重试，一个插件同时覆盖 WorkBuddy 与 Qoder 模型路由。",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "dsh-gateway-shield": "install.mjs"
+  },
+  "files": [
+    "lib",
+    "scripts",
+    "install.mjs",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node scripts/selftest.mjs && node scripts/e2e.mjs",
+    "selftest": "node scripts/selftest.mjs",
+    "e2e": "node scripts/e2e.mjs",
+    "probe": "node scripts/probe-waterfall.mjs && node scripts/probe-reentry.mjs",
+    "verify": "node install.mjs --verify",
+    "install": "node install.mjs"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "dsh-plugin",
+    "workbuddy",
+    "qoder",
+    "prompt",
+    "gateway",
+    "llm",
+    "cordis"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    }
+  }
+}
