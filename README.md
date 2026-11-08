@@ -130,7 +130,7 @@ node --input-type=module -e "const s=await(await fetch('https://raw.githubuserco
 如果上面那行报 404 或拉到旧版本（`raw.githubusercontent.com` 有 5 分钟 CDN 缓存），用这个按 commit 定位的版本，它不受缓存影响：
 
 ```bash
-node --input-type=module -e "const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/327a15ce235058a88dcf9f56650a9b4b255f5d62/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
+node --input-type=module -e "const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/3932858/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
 ```
 
 想先看内容再跑：
@@ -142,12 +142,9 @@ node bootstrap.mjs
 
 它会自动：找到 `DSH_HOME`（默认 `~/.dsh`）和带 `cordis.patch.yml` 的 profile（默认 `web`）→ 下载仓库 tarball → 解包到 `<profile>/node_modules/dsh-gateway-shield` → 往 `cordis.patch.yml` 的 `insert` 列表写一条配置（幂等，带备份）。
 
-想先看内容再跑：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs -o bootstrap.mjs
-node bootstrap.mjs
-```
+> 兼容性：`cordis.patch.yml` 里已经有 `insert` 列表就并进去；一个都没有就新建一个。**不要求先装 dsh-purge。**
+>
+> 升级也是同一条命令：直接覆盖文件，不 rename、不删目录（rename 在 Windows 上会 EBUSY）。
 
 环境变量覆盖（一般不用动）：
 
