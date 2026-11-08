@@ -120,10 +120,25 @@ If a detail is missing, fill a placeholder and continue instead of asking.
 ### 一行命令（推荐，别人复制这个就行）
 
 ```bash
-node -e "fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs').then(r=>r.text()).then(eval)"
+node --input-type=module -e "const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
 ```
 
 不依赖 git、不依赖 `npm install`，只用 Node 自带的 `fetch` 和系统 `tar`。需要 Node ≥ 18。
+
+> **为什么要 `--input-type=module` + base64**：`bootstrap.mjs` 是 ESM（用了顶层 `await`），`node -e` 默认按 CommonJS 解析，直接 `eval` 会报 `Cannot use import statement outside a module`。转成 `data:` URL 再动态 `import` 才是正确入口。
+
+如果上面那行报 404 或拉到旧版本（`raw.githubusercontent.com` 有 5 分钟 CDN 缓存），用这个按 commit 定位的版本，它不受缓存影响：
+
+```bash
+node --input-type=module -e "const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/327a15ce235058a88dcf9f56650a9b4b255f5d62/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
+```
+
+想先看内容再跑：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs -o bootstrap.mjs
+node bootstrap.mjs
+```
 
 它会自动：找到 `DSH_HOME`（默认 `~/.dsh`）和带 `cordis.patch.yml` 的 profile（默认 `web`）→ 下载仓库 tarball → 解包到 `<profile>/node_modules/dsh-gateway-shield` → 往 `cordis.patch.yml` 的 `insert` 列表写一条配置（幂等，带备份）。
 
