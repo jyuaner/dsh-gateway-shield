@@ -167,6 +167,17 @@ cd dsh-gateway-shield
 node install.mjs
 ```
 
+### 用 pnpm / npm 作为依赖装
+
+```bash
+pnpm add github:jyuaner/dsh-gateway-shield
+npm run setup --prefix node_modules/dsh-gateway-shield
+```
+
+> **注意**：`pnpm add` 只负责把包放进 `node_modules`，**不会**自动注册到 `cordis.patch.yml`。必须再跑一次 `setup`（或直接 `node node_modules/dsh-gateway-shield/install.mjs`）。
+>
+> 为什么不挂 postinstall：安装器要做的是「改 profile 配置 + 探测 DSH_HOME」，这是运行环境的事，不是装包该干的事。而且早期版本挂过 `install` 脚本，撞上 npm/pnpm 的生命周期钩子，在 pnpm 持有目录时会 EBUSY 并连带把依赖回滚。
+
 装到 `~/.dsh/profiles/web/node_modules/dsh-gateway-shield`，并往 `cordis.patch.yml` 的 `insert` 列表里写一条：
 
 ```yaml
