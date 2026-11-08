@@ -117,8 +117,37 @@ If a detail is missing, fill a placeholder and continue instead of asking.
 
 ## 安装
 
+### 一行命令（推荐，别人复制这个就行）
+
 ```bash
-git clone https://github.com/<you>/dsh-gateway-shield.git
+node -e "fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs').then(r=>r.text()).then(eval)"
+```
+
+不依赖 git、不依赖 `npm install`，只用 Node 自带的 `fetch` 和系统 `tar`。需要 Node ≥ 18。
+
+它会自动：找到 `DSH_HOME`（默认 `~/.dsh`）和带 `cordis.patch.yml` 的 profile（默认 `web`）→ 下载仓库 tarball → 解包到 `<profile>/node_modules/dsh-gateway-shield` → 往 `cordis.patch.yml` 的 `insert` 列表写一条配置（幂等，带备份）。
+
+想先看内容再跑：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs -o bootstrap.mjs
+node bootstrap.mjs
+```
+
+环境变量覆盖（一般不用动）：
+
+| 变量 | 作用 |
+| --- | --- |
+| `DSH_HOME` | DSH 数据目录，默认 `~/.dsh` |
+| `SHIELD_PROFILE` | 装到哪个 profile，默认 `web` |
+| `SHIELD_REPO` | 从哪个仓库装，默认 `jyuaner/dsh-gateway-shield` |
+| `SHIELD_REF` | 分支/标签，默认 `main` |
+| `HTTPS_PROXY` | 网络受限时用，例 `http://127.0.0.1:7897` |
+
+### 从源码装
+
+```bash
+git clone https://github.com/jyuaner/dsh-gateway-shield.git
 cd dsh-gateway-shield
 node install.mjs
 ```
