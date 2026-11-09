@@ -147,18 +147,19 @@ function verify() {
   log(`${decl.ok ? "✓" : "✗"} dsh.bundle.patch = ${decl.ok ? decl.rel : decl.reason}`);
   if (!decl.ok) bad += 1;
 
-  // 3) profile 里是否还残留手写注册
+  // 3) profile 里的注册情况
+  //
+  // 双份注册无害：bundle patch 与 profile patch 各注册一次时，lib/index.js
+  // 用 SHIELDED 标记保证只清洗一次、不会互相挡死（dup-test 实测 1/2/3 份
+  // 都正常）。所以这里只做提示，不算不合格。
   if (fs.existsSync(PROFILE_PATCH)) {
     const txt = fs.readFileSync(PROFILE_PATCH, "utf8");
     const legacy = txt.includes(MARK_BEGIN);
     const manual = txt.includes(`- id: ${ID}`);
-    if (legacy) {
-      log(`! 发现早期手写注册块（会和 bundle 重复），跑 --clean 清掉`);
-      bad += 1;
-    } else if (manual) {
-      log(`· profile 里有一处手写条目（非本工具写入），确认是否要保留`);
+    if (legacy || manual) {
+      log(`· profile 里有一处注册（${legacy ? "本工具手写" : "外部写入"}），与 bundle 并存无害`);
     } else {
-      log(`✓ profile 无手写注册（由 dsh.bundle 接管）`);
+      log(`✓ profile 无注册，由 dsh.bundle 单独接管`);
     }
   }
 
