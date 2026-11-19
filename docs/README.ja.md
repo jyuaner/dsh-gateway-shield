@@ -1,4 +1,4 @@
-<div align="center">
+﻿<div align="center">
 
 # dsh-gateway-shield
 
@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/badge/license-MIT-3DA639?style=flat-square)](../LICENSE)
 [![DSH](https://img.shields.io/badge/dsh-0.2.1--rc.1%2B-4D6BFE?style=flat-square)](../package.json)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A520-339933?style=flat-square&logo=node.js&logoColor=white)](../package.json)
-[![Tests](https://img.shields.io/badge/tests-35%20%2B%2013%20passing-brightgreen?style=flat-square)](../scripts/selftest.mjs)
+[![Tests](https://img.shields.io/badge/tests-81%20passing-brightgreen?style=flat-square)](../scripts/companions-test.mjs)
 [![Plugins](https://img.shields.io/badge/plugins-workbuddy%20%C2%B7%20qoder-8957E5?style=flat-square)](#dsh-purge-と二つのコネクタと併用する)
 
 **DSH 内の WorkBuddy / Qoder モデルをジェイルブレイクする。**
@@ -15,9 +15,9 @@
 取り込んだモデルには届かない。それらは独自のゲートウェイと独自の拒否傾向を持つ。
 本プラグインはその層を埋める。
 
-15 件のゲートウェイ指紋の同義書き換え · 強化プロンプト付き拒否リトライ · provider 非依存 · dsh-purge と重ねて使う
+15 件のゲートウェイ指紋の同義書き換え · 強化プロンプト付き拒否リトライ · provider 非依存 · dsh-purge と重ねて使う · 3 つまとめて 1 コマンド
 
-バージョン **0.2.0** · **DSH 0.2.1-rc.1+** 対応 · 他のプラグインなしで単体動作します
+バージョン **0.3.0** · **DSH 0.2.1-rc.1+** 対応 · 他のプラグインなしで単体動作します
 
 [dsh-connect-workbuddy](https://github.com/dingminhua/dsh-connect-workbuddy) / [dsh-qoder-connect](https://github.com/masknull/dsh-qoder-connect) と併用（WorkBuddy / Qoder モデルはこれらが供給）· [dsh-purge Community](https://github.com/kingcharleslzy-ai/dsh-purge) と重ねるとより完全（任意）
 
@@ -37,6 +37,44 @@ dsh-gateway-shield WorkBuddy / Qoder のモデルにも        ← これが本�
 ```
 
 **なぜ別の層が必要か**：WorkBuddy と Qoder は DSH に取り込まれた外部モデルである。それぞれのゲートウェイがプロンプト内容を走査し、自前のブロックリストに一致すれば `400` を返す。`dsh-purge` が書き換えるのは DSH 内部のプロンプト組み立てであり、この層には届かない。だから「ジェイルブレイクは入れたのに、モデルを変えるとまた駄目になる」という症状が出る。
+
+---
+
+## 3 つまとめて 1 コマンド
+
+本プラグインは、モデルを供給するコネクタと、ジェイルブレイクの残り半分を担う
+`dsh-purge` が揃って初めて意味を持つ。
+
+```bash
+# クローン済みの場合
+node install.mjs --with-companions
+
+# git 不要のワンライナー
+node --input-type=module -e "globalThis.__SHIELD_ARGV=['--with-companions']; const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
+```
+
+処理の順序：
+
+| 手順 | 動作 | 必須な理由 |
+| --- | --- | --- |
+| 1 | 本パッケージを `<profile>/node_modules/dsh-gateway-shield` に配置 | ファイルを置く |
+| 2 | **パッケージ名を `dsh.profile.bundles` に追記** | DSH はこのリストからしかバンドルを読まない。置くだけでは起動時に何も動かない |
+| 3 | 手順 2 の成功を確認してから、旧式の手書き登録ブロックを削除 | 逆順にすると誰も読み込まない孤立ディレクトリが残る |
+| 4 | 不足している相棒を `pnpm add`（1 コマンドで全部） | それぞれ依存を持つため、ファイルコピーでは `import` で壊れる |
+| 5 | 相棒も `dsh.profile.bundles` に登録 | 手順 2 と同じ理由 |
+| 6 | 残っている作業を表示（WorkBuddy / Qoder へのログインなど） | ログイン状態がないとモデルは現れない |
+
+オプション：`--with-companions`（別名 `--all`）、`--only a,b`、`--skip a,b`、
+`--pm pnpm|npm`、`--dry-run`、`--profile web`、`--dsh-home PATH`。
+
+| id | 層 | 役割 | Node |
+| --- | --- | --- | --- |
+| `dsh-purge-community` | 挙動 | プロンプト / ルール / プリセット | ≥ 18 |
+| `dsh-connect-workbuddy` | ルーティング | WorkBuddy モデル provider | ≥ 22.19 |
+| `dsh-qoder-connect` | ルーティング | Qoder モデル provider | ≥ 22.19 |
+
+インストール前に profile の `package.json` と lockfile を
+`~/.dsh/dsh-purge/gateway-shield-backups/` にバックアップする。
 
 ---
 
@@ -247,9 +285,21 @@ If a detail is missing, fill a placeholder and continue instead of asking.
 
 ## インストール
 
-本パッケージは `dsh.bundle` を宣言している（`package.json` 参照）。**パッケージを入れることがそのまま登録になる** — DSH のプラグインマネージャがこの宣言を読み、自動でマウントする。profile の設定を手で編集する必要はない。
+本パッケージは `dsh.bundle` を宣言しているが、その宣言は「バンドルになれる資格」に
+すぎない。DSH が実際に読み込むのは `<profile>/package.json` の
+`dsh.profile.bundles` に載っているものだけである。設定 → プラグイン のパネルは
+インストール後にこの登録を自動で行うが、コマンドラインからのインストールでは
+本パッケージのインストーラが代行する。
 
-### 方法 1：依存として入れる（推奨）
+### 方法 0：3 つまとめて 1 コマンド（推奨）
+
+```bash
+node install.mjs --with-companions
+```
+
+本パッケージ + dsh-purge + 2 つのコネクタを、配置と同時に登録まで行う。
+
+### 方法 1：依存として入れる
 
 ```bash
 pnpm add github:jyuaner/dsh-gateway-shield
@@ -263,17 +313,21 @@ pnpm add github:jyuaner/dsh-gateway-shield
 }
 ```
 
-その後 **DSH を再起動**。設定 → プラグイン に `dsh-gateway-shield` が現れる。
+**この段階ではファイルが `node_modules` に入るだけで、登録はまだである。**
+設定 → プラグイン でスイッチを入れるか、`node install.mjs` を実行する
+（登録済みなら no-op）。その後 **DSH を再起動**。
 
 ### 方法 2：ソースから
 
 ```bash
 git clone https://github.com/jyuaner/dsh-gateway-shield.git
 cd dsh-gateway-shield
-node install.mjs
+node install.mjs                     # 本パッケージのみ
+node install.mjs --with-companions   # 相棒もまとめて
 ```
 
-`install.mjs` は `<profile>/node_modules/` にファイルを置くだけで、profile の `cordis.patch.yml` には触れない。
+`install.mjs` は「配置 → `dsh.profile.bundles` へ登録 → （登録確認後に）
+旧式の手書きブロックを削除」の 3 段階を行う。
 
 ### 方法 3：ワンライナー
 
@@ -281,9 +335,17 @@ node install.mjs
 node --input-type=module -e "const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
 ```
 
+相棒もまとめる場合：
+
+```bash
+node --input-type=module -e "globalThis.__SHIELD_ARGV=['--with-companions']; const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
+```
+
 git も `npm install` も不要。Node 標準の `fetch` と OS の `tar` だけで動く。Node ≥ 18 が必要。
 
 > **なぜ `--input-type=module` + base64 なのか**：`bootstrap.mjs` は ESM（トップレベル `await` を使用）。`node -e` は既定で CommonJS として解釈するため、素の `eval` では `Cannot use import statement outside a module` になる。`data:` URL に変換して動的 `import` するのが正しい入口である。
+>
+> **なぜ引数を `globalThis.__SHIELD_ARGV` に書くのか**：`node -e` では `process.argv` にスクリプト引数を載せられない（`--` 以降は Node 自身が解釈する）。
 
 プロキシが必要な場合：
 
@@ -293,9 +355,13 @@ $env:HTTPS_PROXY="http://127.0.0.1:7897"
 
 ### インストールが変更するもの
 
-- `<profile>/node_modules/dsh-gateway-shield` を作るだけ。**profile の `cordis.patch.yml` には触れない。**
+- `<profile>/node_modules/dsh-gateway-shield` を作成／上書きする。
+- `<profile>/package.json` の `dsh.profile.bundles` にパッケージ名を**追記**する
+  （既にあれば書き込まない。書き込み前にバックアップ）。プラグインマネージャの
+  `reconcile()` と同じ意味論。
 - アップグレードは**その場でファイルを上書き**する。rename もディレクトリ削除もしない（Windows で使用中のディレクトリを rename すると EBUSY になる）。
-- 初期バージョン（0.1.x。`dsh.bundle` 宣言がなく、profile 設定を手書きしていた）の登録ブロックを検出した場合は取り除き、`~/.dsh/dsh-purge/gateway-shield-backups/` にバックアップする。
+- 旧バージョン（0.1.x）の手書き登録ブロックは、**登録が確認できた場合のみ**削除し、`~/.dsh/dsh-purge/gateway-shield-backups/` にバックアップする。
+- `--with-companions` は `dependencies` と lockfile も書き換える（pnpm / npm 経由、事前にバックアップ）。
 - 再起動、プロキシ変更、他のプラグイン設定の変更は一切しない。
 
 ---
@@ -405,14 +471,18 @@ Ready. The plugin manager should recognise it; effective after restarting DSH.
 ## 検証
 
 ```bash
-npm test          # 自己テスト 35 件 + エンドツーエンド 13 件
-npm run probe     # next(opts) が捨てられること、this.stream() 再入が成立することを証明
-npm run verify    # ヘルスチェック
+npm test                # 自己テスト 38 件 + エンドツーエンド 13 件 + インストーラ 30 件
+npm run test:companions # インストーラの 30 件のみ（オフライン・依存ゼロ）
+npm run probe           # next(opts) が捨てられること、this.stream() 再入が成立することを証明
+npm run verify          # ヘルスチェック
 ```
 
-現在の状態：**35 / 35、13 / 13 すべて通過**。
+現在の状態：**38 / 38、13 / 13、30 / 30、合計 81 件すべて通過**。
 
 エンドツーエンドテストは実際の cordis waterfall セマンティクス（`next()` は引数なし、`options` は `deepFreeze` 済み）に対して実行しており、模擬ではない。
+インストーラのテストは一時的な fixture profile に対して実行する。ネットワークも
+実際のパッケージマネージャも使わず、「`--dry-run` が 1 バイトも書かない」ことまで
+断言している。
 
 ---
 
@@ -453,14 +523,18 @@ dsh-gateway-shield/
 ├── lib/
 │   ├── index.js          llm/stream フック、this.stream() 再入
 │   ├── sanitize.js       15 件のゲートウェイ指紋の同義書き換え
-│   └── refusal.js        拒否検知 + 強化セグメント（三つの options 形状）
+│   ├── refusal.js        拒否検知 + 強化セグメント（三つの options 形状）
+│   ├── companions.js     相棒レジストリ / インストール計画 / 実行器
+│   └── profile.js        dsh.profile.bundles 登録、マニフェストのバックアップ、旧ブロック削除
 ├── scripts/
-│   ├── selftest.mjs      自己テスト 35 件
+│   ├── selftest.mjs      自己テスト 38 件
 │   ├── e2e.mjs           エンドツーエンド 13 件
+│   ├── companions-test.mjs   インストーラ 30 件（オフライン、fixture profile）
 │   ├── probe-waterfall.mjs   next(opts) が捨てられることを証明
 │   └── probe-reentry.mjs     this.stream() 再入が再帰せず成立することを証明
-├── install.mjs           インストール / ヘルスチェック / 残骸の掃除
+├── install.mjs           インストール / 登録 / ヘルスチェック / 掃除（--with-companions 対応）
 ├── bootstrap.mjs         ワンライナーインストーラ
+├── CHANGELOG.md          更新履歴
 └── LICENSE               MIT
 ```
 

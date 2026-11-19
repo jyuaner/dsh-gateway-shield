@@ -1,7 +1,7 @@
 {
   "name": "dsh-gateway-shield",
-  "version": "0.2.0",
-  "description": "DSH 出网前的提示词栅栏：网关指纹清洗 + 软拒绝重试，一个插件同时覆盖 WorkBuddy 与 Qoder 模型路由。",
+  "version": "0.3.0",
+  "description": "DSH 出网前的提示词栅栏：网关指纹清洗 + 软拒绝重试，一个插件同时覆盖 WorkBuddy 与 Qoder 模型路由；支持一条命令装齐 dsh-purge 与两个连接器。",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -17,7 +17,9 @@
     "scripts",
     "cordis.patch.yml",
     "install.mjs",
+    "bootstrap.mjs",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "engines": {
@@ -25,12 +27,14 @@
     "dsh": ">=0.2.1-rc.1"
   },
   "scripts": {
-    "test": "node scripts/selftest.mjs && node scripts/e2e.mjs",
+    "test": "node scripts/selftest.mjs && node scripts/e2e.mjs && node scripts/companions-test.mjs",
     "selftest": "node scripts/selftest.mjs",
     "e2e": "node scripts/e2e.mjs",
+    "test:companions": "node scripts/companions-test.mjs",
     "probe": "node scripts/probe-waterfall.mjs && node scripts/probe-reentry.mjs",
     "verify": "node install.mjs --verify",
-    "setup": "node install.mjs"
+    "setup": "node install.mjs",
+    "setup:all": "node install.mjs --with-companions"
   },
   "keywords": [
     "dsh",

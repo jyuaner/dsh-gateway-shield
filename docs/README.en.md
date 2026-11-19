@@ -1,4 +1,4 @@
-<div align="center">
+﻿<div align="center">
 
 # dsh-gateway-shield
 
@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/badge/license-MIT-3DA639?style=flat-square)](../LICENSE)
 [![DSH](https://img.shields.io/badge/dsh-0.2.1--rc.1%2B-4D6BFE?style=flat-square)](../package.json)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A520-339933?style=flat-square&logo=node.js&logoColor=white)](../package.json)
-[![Tests](https://img.shields.io/badge/tests-35%20%2B%2013%20passing-brightgreen?style=flat-square)](../scripts/selftest.mjs)
+[![Tests](https://img.shields.io/badge/tests-81%20passing-brightgreen?style=flat-square)](../scripts/companions-test.mjs)
 [![Plugins](https://img.shields.io/badge/plugins-workbuddy%20%C2%B7%20qoder-8957E5?style=flat-square)](#using-it-with-dsh-purge-and-the-two-connectors)
 
 **Jailbreak WorkBuddy / Qoder models inside DSH.**
@@ -15,9 +15,9 @@
 through WorkBuddy or Qoder. Those have their own gateways and their own refusal
 habits. This plugin covers that layer.
 
-15 gateway fingerprint rewrites · hardened refusal retry · provider-agnostic · stacks on top of dsh-purge
+15 gateway fingerprint rewrites · hardened refusal retry · provider-agnostic · stacks on top of dsh-purge · one command for all three plugins
 
-Version **0.2.0** · For **DSH 0.2.1-rc.1+** · Runs standalone, no other plugin required
+Version **0.3.0** · For **DSH 0.2.1-rc.1+** · Runs standalone, no other plugin required
 
 Use it with [dsh-connect-workbuddy](https://github.com/dingminhua/dsh-connect-workbuddy) / [dsh-qoder-connect](https://github.com/masknull/dsh-qoder-connect) (they supply the WorkBuddy / Qoder models) · Stacks with [dsh-purge Community](https://github.com/kingcharleslzy-ai/dsh-purge) for a more complete setup (optional)
 
@@ -36,6 +36,44 @@ dsh-gateway-shield makes WorkBuddy / Qoder models        ← this plugin
 ```
 
 **Why a separate layer is needed**: WorkBuddy and Qoder are external models wired into DSH. Their gateways scan prompt content and return `400` on a hit against their own blocklist. `dsh-purge` rewrites how DSH assembles its prompt internally — it never touches that layer. Hence the familiar symptom: *"the jailbreak is installed, but the moment I switch models it still refuses."*
+
+---
+
+## Install all three in one command
+
+This plugin only does something useful next to the connectors (which supply the
+models) and `dsh-purge` (which supplies the other half of the jailbreak).
+
+```bash
+# from a clone
+node install.mjs --with-companions
+
+# or a one-liner, no git needed
+node --input-type=module -e "globalThis.__SHIELD_ARGV=['--with-companions']; const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
+```
+
+What it does, in order:
+
+| Step | Action | Why it is mandatory |
+| --- | --- | --- |
+| 1 | Copy this package into `<profile>/node_modules/dsh-gateway-shield` | files on disk |
+| 2 | **Append the package name to `dsh.profile.bundles`** | DSH reads bundles only from that list; files alone never load |
+| 3 | Remove the legacy hand-written block — only after step 2 succeeded | doing it in the other order leaves an orphan directory nobody loads |
+| 4 | `pnpm add` whichever companions are missing (one command) | they ship dependencies; copying files yields a directory that breaks on `import` |
+| 5 | Register the companions in `dsh.profile.bundles` too | same reason as step 2 |
+| 6 | Report what is still missing (e.g. logging in to WorkBuddy / Qoder) | without a local login the models never show up |
+
+Flags: `--with-companions` (alias `--all`), `--only a,b`, `--skip a,b`,
+`--pm pnpm|npm`, `--dry-run`, `--profile web`, `--dsh-home PATH`.
+
+| id | Layer | Role | Node |
+| --- | --- | --- | --- |
+| `dsh-purge-community` | behaviour | prompts / rules / presets | ≥ 18 |
+| `dsh-connect-workbuddy` | routing | WorkBuddy model provider | ≥ 22.19 |
+| `dsh-qoder-connect` | routing | Qoder model provider | ≥ 22.19 |
+
+The profile's `package.json` and lockfile are backed up to
+`~/.dsh/dsh-purge/gateway-shield-backups/` before anything is installed.
 
 ---
 
@@ -247,9 +285,21 @@ This plugin declares **no `dependencies`**; its only `peerDependency` is an opti
 
 ## Installation
 
-This package declares `dsh.bundle` (see `package.json`). **Installing it registers it** — the DSH plugin manager reads that declaration and mounts it. No profile configuration needs to be edited by hand.
+The package declares `dsh.bundle` (see `package.json`), but that declaration only
+means *"this package is allowed to be a bundle"*. DSH loads a bundle only when its
+name is listed in `dsh.profile.bundles` inside `<profile>/package.json`. The
+Settings → Plugins panel does that registration for you; command-line installs are
+handled by this package's installer.
 
-### Option 1: as a dependency (recommended)
+### Option 0: all three, one command (recommended)
+
+```bash
+node install.mjs --with-companions
+```
+
+This package plus dsh-purge plus both connectors, registered as they land.
+
+### Option 1: as a dependency
 
 ```bash
 pnpm add github:jyuaner/dsh-gateway-shield
@@ -263,17 +313,22 @@ Or add to the profile's `package.json`:
 }
 ```
 
-Then **restart DSH**. `dsh-gateway-shield` appears under Settings → Plugins.
+**This only puts the files in `node_modules` — it is not registered yet.** Then
+either flip the switch under Settings → Plugins, or run `node install.mjs` (adds the
+registration; a no-op when already listed). Then **restart DSH**.
 
 ### Option 2: from source
 
 ```bash
 git clone https://github.com/jyuaner/dsh-gateway-shield.git
 cd dsh-gateway-shield
-node install.mjs
+node install.mjs                     # this package only
+node install.mjs --with-companions   # plus the companions
 ```
 
-`install.mjs` only places files into `<profile>/node_modules/`. It does not touch the profile's `cordis.patch.yml`.
+`install.mjs` does three things: place files → register in `dsh.profile.bundles` →
+(once registration is confirmed) strip the legacy hand-written block from
+`cordis.patch.yml`.
 
 ### Option 3: one-liner
 
@@ -281,9 +336,17 @@ node install.mjs
 node --input-type=module -e "const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
 ```
 
+With the companions:
+
+```bash
+node --input-type=module -e "globalThis.__SHIELD_ARGV=['--with-companions']; const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
+```
+
 No git, no `npm install` — only Node's built-in `fetch` and the system `tar`. Requires Node ≥ 18.
 
 > **Why `--input-type=module` + base64**: `bootstrap.mjs` is ESM (it uses top-level `await`). `node -e` parses as CommonJS by default, so a plain `eval` throws `Cannot use import statement outside a module`. Converting to a `data:` URL and importing dynamically is the correct entry point.
+>
+> **Why flags go into `globalThis.__SHIELD_ARGV`**: `node -e` cannot carry script arguments through `process.argv` — anything after `--` is parsed by Node itself.
 
 Behind a proxy:
 
@@ -293,9 +356,13 @@ $env:HTTPS_PROXY="http://127.0.0.1:7897"
 
 ### What installation changes
 
-- Creates only `<profile>/node_modules/dsh-gateway-shield`. **Does not touch the profile's `cordis.patch.yml`.**
+- Creates/overwrites `<profile>/node_modules/dsh-gateway-shield`.
+- **Appends** the package name to `dsh.profile.bundles` in `<profile>/package.json`
+  (no write when already listed; the manifest is backed up first). This mirrors the
+  plugin manager's `reconcile()`.
 - Upgrades by **overwriting files in place** — no rename, no directory deletion (renaming an occupied directory on Windows returns EBUSY).
-- If it detects a registration block left by an early version (0.1.x, which had no `dsh.bundle` declaration and relied on hand-written profile config), it removes it and backs it up to `~/.dsh/dsh-purge/gateway-shield-backups/`.
+- Removes the legacy block left by 0.1.x **only after** registration is confirmed, backing it up to `~/.dsh/dsh-purge/gateway-shield-backups/`.
+- `--with-companions` additionally rewrites `dependencies` and the lockfile (via pnpm/npm), after backing both up.
 - Does not restart anything, change proxies, or touch other plugins' configuration.
 
 ---
@@ -405,14 +472,17 @@ To watch sanitisation happen, set `verbose: true`:
 ## Verification
 
 ```bash
-npm test          # 35 self-tests + 13 end-to-end
-npm run probe     # proves next(opts) is discarded and this.stream() re-entry works
-npm run verify    # health check
+npm test                # 38 self-tests + 13 end-to-end + 30 installer tests
+npm run test:companions # only the 30 installer tests (offline, zero dependencies)
+npm run probe           # proves next(opts) is discarded and this.stream() re-entry works
+npm run verify          # health check
 ```
 
-Current status: **35 / 35, 13 / 13 passing**.
+Current status: **38 / 38, 13 / 13, 30 / 30 — 81 passing**.
 
 The end-to-end tests run against real cordis waterfall semantics (`next()` takes no arguments, `options` is `deepFreeze`d) — not a simulation.
+The installer tests run against a temporary fixture profile: no network, no real
+package manager, and even "`--dry-run` writes not a single byte" is asserted.
 
 ---
 
@@ -453,14 +523,18 @@ dsh-gateway-shield/
 ├── lib/
 │   ├── index.js          llm/stream hook, this.stream() re-entry
 │   ├── sanitize.js       15 gateway fingerprint rewrites
-│   └── refusal.js        refusal detection + hardening segment (three options shapes)
+│   ├── refusal.js        refusal detection + hardening segment (three options shapes)
+│   ├── companions.js     companion registry / install plan / executor
+│   └── profile.js        dsh.profile.bundles registration, manifest backup, legacy block removal
 ├── scripts/
-│   ├── selftest.mjs      35 self-tests
+│   ├── selftest.mjs      38 self-tests
 │   ├── e2e.mjs           13 end-to-end tests
+│   ├── companions-test.mjs   30 installer tests (offline, fixture profile)
 │   ├── probe-waterfall.mjs   proves next(opts) is discarded
 │   └── probe-reentry.mjs     proves this.stream() re-entry works without recursion
-├── install.mjs           install / health check / residue cleanup
+├── install.mjs           install / register / health check / cleanup, incl. --with-companions
 ├── bootstrap.mjs         one-liner installer
+├── CHANGELOG.md          release history
 └── LICENSE               MIT
 ```
 

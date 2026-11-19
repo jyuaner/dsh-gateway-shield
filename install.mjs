@@ -2,25 +2,42 @@
 /**
  * dsh-gateway-shield 辅助工具。
  *
- * ## 重要：本文件不再负责「注册插件」
+ * ## 它负责什么
  *
- * package.json 里声明了 `dsh.bundle.patch` → `./cordis.patch.yml`，
- * DSH 的插件管理器（设置 → 插件）读取该声明后会自动把它挂上 profile。
- * 所以「装包」= 「完成注册」，不需要再往 profile 的 cordis.patch.yml 写任何东西。
+ * 三件事，按顺序：
  *
- * 早期版本没有这个声明，只能靠这个脚本手改配置。那条路有两个问题：
- *   1. 插件管理器认不出（提示「没有声明组合包」）
- *   2. 一旦补上声明，手写的条目就和 bundle 重复注册
+ *   1. **放文件** —— 把包复制进 `<profile>/node_modules/dsh-gateway-shield`
+ *      （pnpm/npm 装的话这一步已经由包管理器做了，跳过即可）
+ *   2. **登记** —— 把包名追加进 profile 的 `dsh.profile.bundles`
+ *      DSH 只从这里读组合包；只放文件不登记，启动时一行都不会跑
+ *   3. **可选：装齐搭档** —— `--with-companions` 把 dsh-purge / 两个连接器
+ *      一并装上并登记，一条命令到达「能用」的状态
  *
- * 现在它只做三件事：
- *   node install.mjs            把包复制到目标 profile（手动安装用；pnpm/npm 装则不需要）
- *   node install.mjs --verify   体检：文件完整 + 声明正确 + 是否已注册
- *   node install.mjs --clean    清掉早期版本可能残留的手写注册
+ * 早期版本没有 `dsh.bundle` 声明，只能靠往 profile 的 `cordis.patch.yml`
+ * 手写注册块。现在有声明了，那段手写块就是重复注册 —— 但**必须等第 2 步
+ * 登记成功之后**才能摘，否则会出现「文件在、注册没了」的孤儿状态。
+ *
+ * 用法：
+ *   node install.mjs                        放文件 + 登记
+ *   node install.mjs --with-companions      再装齐 dsh-purge + 两个连接器
+ *   node install.mjs --only dsh-qoder-connect --with-companions
+ *   node install.mjs --verify               体检：文件 / 声明 / 登记 / 搭档
+ *   node install.mjs --clean                清掉早期版本的手写注册块
+ *   node install.mjs --dry-run              只打印计划，不动盘
  */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { ensureBundles, hasMarkerBlock, readManifest, stripMarkerBlock } from "./lib/profile.js";
+import {
+  COMPANIONS,
+  describePlan,
+  detectInstalled,
+  installCompanions,
+  planCompanions,
+  registerBundles,
+} from "./lib/companions.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const HOME = os.homedir();
@@ -31,19 +48,30 @@ function opt(name, fallback) {
   const i = args.indexOf(`--${name}`);
   return i >= 0 && args[i + 1] && !args[i + 1].startsWith("--") ? args[i + 1] : fallback;
 }
+/** 可重复、可逗号分隔：--only a,b --only c */
+function list(name) {
+  const out = [];
+  args.forEach((a, i) => {
+    if (a !== `--${name}`) return;
+    const v = args[i + 1];
+    if (!v || v.startsWith("--")) return;
+    for (const part of v.split(",")) if (part.trim() !== "") out.push(part.trim());
+  });
+  return out;
+}
 
 const DRY = has("dry-run");
 const VERIFY = has("verify");
 const CLEAN = has("clean");
+const WITH_COMPANIONS = has("with-companions") || has("all") || list("only").length > 0;
 
 const ID = "dsh-gateway-shield";
-const MARK_BEGIN = "    # >>> dsh-gateway-shield";
-const MARK_END = "    # <<< dsh-gateway-shield";
 
 const DSH_HOME = opt("dsh-home", process.env.DSH_HOME?.trim() || path.join(HOME, ".dsh"));
+const BACKUP_DIR = path.join(DSH_HOME, "dsh-purge", "gateway-shield-backups");
 
 /** 要复制的文件。cordis.patch.yml 是注册凭据，必须带上。 */
-const SHIP = ["lib", "scripts", "cordis.patch.yml", "package.json", "README.md", "LICENSE", "install.mjs"];
+const SHIP = ["lib", "scripts", "cordis.patch.yml", "package.json", "README.md", "CHANGELOG.md", "LICENSE", "install.mjs"];
 
 const log = (m = "") => console.log(m);
 
@@ -111,10 +139,12 @@ function readBundleDeclaration() {
   }
 }
 
-/** 清掉早期版本手写的注册块（有了 bundle 之后它会造成重复注册）。 */
-function stripLegacyMarkers(text) {
-  const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return text.replace(new RegExp(`\\n?${esc(MARK_BEGIN)}[\\s\\S]*?${esc(MARK_END)}\\n?`, "g"), "");
+/** profile 的 bundles 是否已经接管本包。 */
+function profileRegistered(id = ID) {
+  const read = readManifest(profile.dir);
+  if (!read.ok) return { ok: false, listed: false, error: read.error };
+  const bundles = read.manifest?.dsh?.profile?.bundles ?? [];
+  return { ok: true, listed: Array.isArray(bundles) && bundles.includes(id) };
 }
 
 function verify() {
@@ -125,7 +155,7 @@ function verify() {
   log("");
 
   // 1) 文件完整
-  for (const f of ["package.json", "lib/index.js", "lib/sanitize.js", "lib/refusal.js", "cordis.patch.yml"]) {
+  for (const f of ["package.json", "lib/index.js", "lib/sanitize.js", "lib/refusal.js", "lib/companions.js", "lib/profile.js", "cordis.patch.yml"]) {
     const ok = fs.existsSync(path.join(TARGET, f));
     log(`${ok ? "✓" : "✗"} ${f}`);
     if (!ok) bad += 1;
@@ -137,7 +167,7 @@ function verify() {
     const j = JSON.parse(fs.readFileSync(path.join(TARGET, "package.json"), "utf8"));
     const p = j?.dsh?.bundle?.patch;
     if (typeof p === "string" && fs.existsSync(path.join(TARGET, p))) {
-      decl = { ok: true, rel: p };
+      decl = { ok: true, rel: p, version: j.version };
     } else {
       decl = { ok: false, reason: "dsh.bundle.patch 缺失或指向的文件不存在" };
     }
@@ -147,20 +177,39 @@ function verify() {
   log(`${decl.ok ? "✓" : "✗"} dsh.bundle.patch = ${decl.ok ? decl.rel : decl.reason}`);
   if (!decl.ok) bad += 1;
 
-  // 3) profile 里的注册情况
-  //
-  // 双份注册无害：bundle patch 与 profile patch 各注册一次时，lib/index.js
-  // 用 SHIELDED 标记保证只清洗一次、不会互相挡死（dup-test 实测 1/2/3 份
-  // 都正常）。所以这里只做提示，不算不合格。
-  if (fs.existsSync(PROFILE_PATCH)) {
-    const txt = fs.readFileSync(PROFILE_PATCH, "utf8");
-    const legacy = txt.includes(MARK_BEGIN);
-    const manual = txt.includes(`- id: ${ID}`);
-    if (legacy || manual) {
-      log(`· profile 里有一处注册（${legacy ? "本工具手写" : "外部写入"}），与 bundle 并存无害`);
-    } else {
-      log(`✓ profile 无注册，由 dsh.bundle 单独接管`);
-    }
+  // 3) 登记情况 —— 这一项才是「会不会真的加载」
+  const reg = profileRegistered();
+  if (!reg.ok) {
+    log(`✗ ${reg.error}`);
+    bad += 1;
+  } else if (reg.listed) {
+    log(`✓ dsh.profile.bundles 已收录（DSH 启动时会加载）`);
+  } else {
+    const legacy = fs.existsSync(PROFILE_PATCH) && hasMarkerBlock(fs.readFileSync(PROFILE_PATCH, "utf8"), ID);
+    log(
+      legacy
+        ? `· dsh.profile.bundles 未收录，但 cordis.patch.yml 里有手写块 —— 目前靠它挂载`
+        : `✗ dsh.profile.bundles 未收录：文件在，但 DSH 启动时不会加载`,
+    );
+    if (!legacy) bad += 1;
+  }
+
+  // 4) 搭档三件套
+  log("");
+  log("搭档：");
+  const installed = detectInstalled(profile.dir);
+  const bundles = new Set(readManifest(profile.dir).manifest?.dsh?.profile?.bundles ?? []);
+  for (const c of COMPANIONS) {
+    const s = installed.get(c.id);
+    const listed = bundles.has(c.id);
+    const mark = s?.installed ? (listed ? "✓" : "·") : "·";
+    const state = s?.installed ? `v${s.version}` : "未装";
+    const note = s?.installed && !listed ? "  装了但没登记（DSH 不会加载）" : "";
+    log(`${mark} ${c.id.padEnd(22)} ${state.padEnd(10)} ${c.role}${note}`);
+  }
+  const missing = COMPANIONS.filter((c) => !installed.get(c.id)?.installed);
+  if (missing.length > 0) {
+    log(`  补齐：node install.mjs --with-companions${list("only").length ? ` --only ${list("only").join(",")}` : ""}`);
   }
 
   log("");
@@ -187,35 +236,57 @@ function install() {
 
   if (DRY) {
     log(`[dry-run] 将覆盖 ${SHIP.join(", ")}`);
-    return;
-  }
-
-  fs.mkdirSync(TARGET, { recursive: true });
-  let n = 0;
-  for (const item of SHIP) {
-    const s = path.join(HERE, item);
-    if (!fs.existsSync(s)) continue;
-    const d = path.join(TARGET, item);
-    if (fs.statSync(s).isDirectory()) n += copyDir(s, d);
-    else {
-      fs.copyFileSync(s, d);
-      n += 1;
+  } else {
+    fs.mkdirSync(TARGET, { recursive: true });
+    let n = 0;
+    for (const item of SHIP) {
+      const s = path.join(HERE, item);
+      if (!fs.existsSync(s)) continue;
+      const d = path.join(TARGET, item);
+      if (fs.statSync(s).isDirectory()) n += copyDir(s, d);
+      else {
+        fs.copyFileSync(s, d);
+        n += 1;
+      }
     }
+    log(`✓ ${n} 个文件已覆盖`);
   }
-  log(`✓ ${n} 个文件已覆盖`);
 
-  // 有 bundle 声明之后，profile 里的手写注册就是重复的
-  if (fs.existsSync(PROFILE_PATCH)) {
+  // ---- 登记：DSH 只认 dsh.profile.bundles ----
+  const reg = DRY ? { ok: true, changed: true, backup: null } : ensureBundles(profile.dir, [ID], { backupDir: BACKUP_DIR });
+  if (DRY) {
+    log(`[dry-run] 将把 ${ID} 追加进 dsh.profile.bundles`);
+  } else if (!reg.ok) {
+    log(`✗ 登记失败：${reg.error}`);
+    process.exitCode = 1;
+  } else if (reg.changed) {
+    log(`✓ 已登记进 dsh.profile.bundles${reg.backup ? `（备份 ${path.basename(reg.backup)}）` : ""}`);
+  } else {
+    log(`✓ dsh.profile.bundles 已收录`);
+  }
+
+  // ---- 手写块：登记成功之后才摘，顺序不能反 ----
+  const covered = DRY ? true : profileRegistered().listed;
+  if (fs.existsSync(PROFILE_PATCH) && covered) {
     const txt = fs.readFileSync(PROFILE_PATCH, "utf8");
-    if (txt.includes(MARK_BEGIN)) {
-      const cleaned = stripLegacyMarkers(txt);
-      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const bak = path.join(DSH_HOME, "dsh-purge", "gateway-shield-backups", `cordis.patch.yml.${stamp}`);
-      fs.mkdirSync(path.dirname(bak), { recursive: true });
-      fs.copyFileSync(PROFILE_PATCH, bak);
-      fs.writeFileSync(PROFILE_PATCH, cleaned, "utf8");
-      log(`✓ 已清掉旧的手写注册（备份 ${path.basename(bak)}）`);
+    if (hasMarkerBlock(txt, ID)) {
+      if (DRY) {
+        log("[dry-run] 将摘掉 cordis.patch.yml 里的手写注册块");
+      } else {
+        const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+        fs.mkdirSync(BACKUP_DIR, { recursive: true });
+        const bak = path.join(BACKUP_DIR, `cordis.patch.yml.${stamp}`);
+        fs.copyFileSync(PROFILE_PATCH, bak);
+        fs.writeFileSync(PROFILE_PATCH, stripMarkerBlock(txt, ID), "utf8");
+        log(`✓ 已摘掉手写注册块（备份 ${path.basename(bak)}）`);
+      }
     }
+  }
+
+  // ---- 可选：搭档三件套 ----
+  if (WITH_COMPANIONS) {
+    log("");
+    installCompanionSet();
   }
 
   log("");
@@ -224,14 +295,87 @@ function install() {
   log("  日志里应出现 [gateway-shield] active …");
 }
 
+function installCompanionSet() {
+  const plan = planCompanions({
+    profileDir: profile.dir,
+    only: list("only"),
+    skip: list("skip"),
+    pm: opt("pm", undefined),
+  });
+
+  if (plan.unknown.length > 0) {
+    log(`✗ 未知的插件 id：${plan.unknown.join(", ")}`);
+    log(`  可选：${COMPANIONS.map((c) => c.id).join(" / ")}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  log(`搭档（包管理器 ${plan.pm}）：`);
+  for (const line of describePlan(plan)) log(`  ${line}`);
+  for (const w of plan.warnings) log(`  ! ${w}`);
+
+  const res = installCompanions({
+    profileDir: profile.dir,
+    backupDir: BACKUP_DIR,
+    plan,
+    dryRun: DRY,
+  });
+
+  if (!res.ran && res.reason === "nothing-missing") {
+    log("  全部已就位，无需安装");
+  } else if (res.reason === "dry-run") {
+    log(`  [dry-run] 将执行：${res.command}`);
+  } else if (!res.ok) {
+    log(`  ✗ ${res.error}`);
+    if (res.hint) log(`  ${res.hint}`);
+    if (res.backups?.length) log(`  备份：${res.backups.map((b) => path.basename(b)).join(", ")}`);
+    process.exitCode = 1;
+    return;
+  } else {
+    log(`  ✓ ${res.command}`);
+    for (const r of res.results) log(`  ✓ ${r.id.padEnd(22)} v${r.version ?? "?"}`);
+  }
+
+  const reg = registerBundles({
+    profileDir: profile.dir,
+    ids: plan.items.filter((i) => i.installed || res.results.some((r) => r.id === i.id && r.installed)).map((i) => i.id),
+    backupDir: BACKUP_DIR,
+    dryRun: DRY,
+  });
+
+  if (DRY) {
+    log(`  [dry-run] 将把 ${reg.added.join(", ") || "（无）"} 追加进 dsh.profile.bundles`);
+  } else if (!reg.ok) {
+    log(`  ✗ 登记失败：${reg.error}`);
+    process.exitCode = 1;
+  } else if (reg.added.length > 0) {
+    log(`  ✓ 已登记：${reg.added.join(", ")}`);
+  } else {
+    log(`  · dsh.profile.bundles 已收录，无需改动`);
+  }
+  if (reg.skipped?.length) {
+    for (const s of reg.skipped) log(`  ! ${s.name} 跳过登记：${s.reason}`);
+  }
+  const needLogin = plan.items.filter((i) => i.login && (i.installed || reg.added.includes(i.id)));
+  if (needLogin.length > 0) {
+    log(`  · ${needLogin.map((i) => i.title).join(" / ")} 还需要在本机登录一次对应客户端，模型才会出现`);
+  }
+}
+
 function clean() {
   if (!fs.existsSync(PROFILE_PATCH)) {
     log("没有 profile patch 文件");
     return;
   }
   const txt = fs.readFileSync(PROFILE_PATCH, "utf8");
-  if (!txt.includes(MARK_BEGIN)) {
+  if (!hasMarkerBlock(txt, ID)) {
     log("没有需要清理的手写注册块");
+    return;
+  }
+  if (!profileRegistered().listed) {
+    log("✗ dsh.profile.bundles 里没有本包。现在摘掉手写块，插件就彻底不会被加载。");
+    log("  先跑 node install.mjs 让它进 bundles，再回来清。");
+    process.exitCode = 1;
     return;
   }
   if (DRY) {
@@ -239,12 +383,12 @@ function clean() {
     return;
   }
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const bak = path.join(DSH_HOME, "dsh-purge", "gateway-shield-backups", `cordis.patch.yml.${stamp}`);
-  fs.mkdirSync(path.dirname(bak), { recursive: true });
+  fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  const bak = path.join(BACKUP_DIR, `cordis.patch.yml.${stamp}`);
   fs.copyFileSync(PROFILE_PATCH, bak);
-  fs.writeFileSync(PROFILE_PATCH, stripLegacyMarkers(txt), "utf8");
+  fs.writeFileSync(PROFILE_PATCH, stripMarkerBlock(txt, ID), "utf8");
   log(`✓ 已清掉手写注册块（备份 ${path.basename(bak)}）`);
-  log("插件本身仍在 node_modules，由 dsh.bundle 注册。");
+  log("插件本身仍在 node_modules，由 dsh.profile.bundles 注册。");
 }
 
 if (VERIFY) verify();

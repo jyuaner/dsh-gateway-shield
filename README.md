@@ -1,4 +1,4 @@
-<div align="center">
+﻿<div align="center">
 
 # dsh-gateway-shield
 
@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/badge/license-MIT-3DA639?style=flat-square)](LICENSE)
 [![DSH](https://img.shields.io/badge/dsh-0.2.1--rc.1%2B-4D6BFE?style=flat-square)](package.json)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A520-339933?style=flat-square&logo=node.js&logoColor=white)](package.json)
-[![Tests](https://img.shields.io/badge/tests-35%20%2B%2013%20passing-brightgreen?style=flat-square)](scripts/selftest.mjs)
+[![Tests](https://img.shields.io/badge/tests-81%20passing-brightgreen?style=flat-square)](scripts/companions-test.mjs)
 [![Plugins](https://img.shields.io/badge/plugins-workbuddy%20%C2%B7%20qoder-8957E5?style=flat-square)](#和-dsh-purge两个连接器一起用)
 
 **给 DSH 里的 WorkBuddy / Qoder 模型破甲。**
@@ -14,9 +14,9 @@
 装 `dsh-purge` 只破得了 DSH 自己那套提示词，管不到从 WorkBuddy、Qoder 接进来的模型——
 它们有自己的网关、自己的拒答习惯。这个插件补的就是这一层。
 
-15 条网关指纹同义改写 · 软拒绝带加固重试 · provider 无关 · 与 dsh-purge 叠加使用
+15 条网关指纹同义改写 · 软拒绝带加固重试 · provider 无关 · 与 dsh-purge 叠加使用 · 一条命令装齐三件套
 
-当前版本 **0.2.0** · 适配 **DSH 0.2.1-rc.1+** · 无需其他插件即可运行
+当前版本 **0.3.0** · 适配 **DSH 0.2.1-rc.1+** · 无需其他插件即可运行
 
 配合 [dsh-connect-workbuddy](https://github.com/dingminhua/dsh-connect-workbuddy) / [dsh-qoder-connect](https://github.com/masknull/dsh-qoder-connect) 使用（由它们提供 WorkBuddy / Qoder 模型）· 与 [dsh-purge Community](https://github.com/kingcharleslzy-ai/dsh-purge) 叠加更完整（可选）
 
@@ -35,6 +35,56 @@ dsh-gateway-shield 让 WorkBuddy / Qoder 的模型      ← 就是这个
 ```
 
 **为什么需要单独一层**：WorkBuddy 和 Qoder 是被接进 DSH 的外部模型。它们的网关会扫提示词内容，命中自家黑名单就返 `400`，而 `dsh-purge` 改的是 DSH 内部的提示词组装，碰不到这一层。所以会出现「破甲明明装了，一换模型还是不行」。
+
+---
+
+## 一键装齐三件套
+
+「装这个」和「装那三个」本来就该是同一件事：本插件只有配上连接器（提供模型）和
+`dsh-purge`（提供另一半破甲）才谈得上生效。
+
+```bash
+# 已克隆仓库
+node install.mjs --with-companions
+
+# 或者一行命令，不依赖 git
+node --input-type=module -e "globalThis.__SHIELD_ARGV=['--with-companions']; const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
+```
+
+它按这个顺序做事：
+
+| 步骤 | 动作 | 为什么必须有 |
+| --- | --- | --- |
+| 1 | 把本包放进 `<profile>/node_modules/dsh-gateway-shield` | 文件到位 |
+| 2 | 把包名**追加进 `dsh.profile.bundles`** | DSH 只从这里读组合包；只放文件不登记，启动时一行都不跑 |
+| 3 | 确认登记成功之后，才摘掉早期手写注册块 | 顺序反过来会摘出一个谁都不加载的孤儿目录 |
+| 4 | `pnpm add` 缺的那几个搭档（一次命令装完） | 它们各自带依赖，直接复制文件会得到一个 import 就炸的目录 |
+| 5 | 把搭档也逐个登记进 `dsh.profile.bundles` | 同第 2 步 |
+| 6 | 打印还差什么（例如需要在本机登录 WorkBuddy / Qoder） | 登录态拿不到，模型不会出现在列表里 |
+
+可控参数：
+
+| 参数 | 作用 |
+| --- | --- |
+| `--with-companions`（别名 `--all`） | 装齐三个搭档 |
+| `--only a,b` | 只装其中几个（隐含 `--with-companions`） |
+| `--skip a,b` | 跳过其中几个 |
+| `--pm pnpm\|npm` | 指定包管理器（默认按 profile 的 lockfile 判断） |
+| `--dry-run` | 只打印计划，不动盘 |
+| `--profile web` | 指定 profile |
+| `--dsh-home PATH` | 指定 DSH 数据目录（默认 `~/.dsh`） |
+
+搭档清单（顺序即追加进 `dsh.profile.bundles` 的顺序）：
+
+| id | 层 | 作用 | Node |
+| --- | --- | --- | --- |
+| `dsh-purge-community` | 行为 | 提示词 / 规则 / 预设，让 Agent 不推脱 | ≥ 18 |
+| `dsh-connect-workbuddy` | 路由 | WorkBuddy 模型 provider | ≥ 22.19 |
+| `dsh-qoder-connect` | 路由 | Qoder 模型 provider | ≥ 22.19 |
+
+装依赖前会先把 profile 的 `package.json` 和 lockfile 备份到
+`~/.dsh/dsh-purge/gateway-shield-backups/`；装失败按提示把备份盖回去即可回到装之前。
+装完重启 DSH，设置 → 插件 里应该一次看到四个条目。
 
 ---
 
@@ -234,7 +284,7 @@ If a detail is missing, fill a placeholder and continue instead of asking.
 ### 配置上的注意
 
 - **本插件的 `providers: []` 表示全部 provider**，所以 WorkBuddy 和 Qoder 同时被保护。只想保护一家时写 `["workbuddy"]` 或 `["qoder"]`。
-- **三个插件都通过 `dsh.bundle` 注册**，装包即挂载，不需要手改 profile 配置。
+- **挂载要两样东西**：包在 `<profile>/node_modules/` 里，包名在 `<profile>/package.json` 的 `dsh.profile.bundles` 里。`dsh.bundle` 声明只是「这个包有资格当 bundle」；`dsh.profile.bundles` 才是「这次启动要加载它」。设置 → 插件 面板会自动维护后者，命令行安装由 `install.mjs` 代劳。
 - **顺序无关**。都挂在 `llm/stream` 上时，本插件用 Symbol 标记防重入，不会因先后顺序重复处理。
 - **破甲的 `refusalRetry` 默认是关闭的**（`TUNING_DEFAULTS.refusalRetry = false`），所以默认不存在冲突。如果你手动打开过它（`~/.dsh/dsh-purge/tuning.json` 里写 `"refusalRetry": true`），它会和本插件重复做同一件事——而且如上文所述，它那份加固段会丢、属于空转。**建议保持关闭**，把重试交给本插件。
 
@@ -242,9 +292,20 @@ If a detail is missing, fill a placeholder and continue instead of asking.
 
 ## 安装
 
-本包声明了 `dsh.bundle`（见 `package.json`），**装包即完成注册**——DSH 插件管理器读这份声明后自行挂载，不需要手改任何 profile 配置。
+包里有 `dsh.bundle` 声明（见 `package.json`），但声明本身只是「有资格当 bundle」。
+DSH 启动时**只读 `<profile>/package.json` 的 `dsh.profile.bundles`**，名单里有它才加载。
+设置 → 插件 面板装包时会自动登记；命令行安装由本包的安装器代劳。
 
-### 方式一：作为依赖装（推荐）
+### 方式零：一条命令装齐（推荐）
+
+```bash
+node install.mjs --with-companions
+```
+
+本包 + dsh-purge + 两个连接器，装完还顺手登记进 `dsh.profile.bundles`。
+细节见上面的 [一键装齐三件套](#一键装齐三件套)。
+
+### 方式一：作为依赖装
 
 ```bash
 pnpm add github:jyuaner/dsh-gateway-shield
@@ -258,17 +319,24 @@ pnpm add github:jyuaner/dsh-gateway-shield
 }
 ```
 
-装完**重启 DSH**。设置 → 插件 里会出现 `dsh-gateway-shield`。
+**这一步只把文件放进了 `node_modules`，还没登记。** 装完二选一：
+
+- 打开 设置 → 插件，找到 `dsh-gateway-shield` 打开开关（面板会写 `dsh.profile.bundles`）；
+- 或者跑 `node install.mjs`（会补登记，已登记则 no-op）。
+
+然后**重启 DSH**，设置 → 插件 里应能看到并可开关。
 
 ### 方式二：从源码装
 
 ```bash
 git clone https://github.com/jyuaner/dsh-gateway-shield.git
 cd dsh-gateway-shield
-node install.mjs
+node install.mjs                     # 只装本包
+node install.mjs --with-companions   # 连搭档一起
 ```
 
-`install.mjs` 只做「把文件放到 `<profile>/node_modules/`」，不碰 profile 的 `cordis.patch.yml`。
+`install.mjs` 做三件事：放文件 → 登记 `dsh.profile.bundles` → （登记确认后）摘掉
+早期版本在 `cordis.patch.yml` 里留下的手写注册块。
 
 ### 方式三：一行命令
 
@@ -276,9 +344,18 @@ node install.mjs
 node --input-type=module -e "const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
 ```
 
+连搭档一起：
+
+```bash
+node --input-type=module -e "globalThis.__SHIELD_ARGV=['--with-companions']; const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
+```
+
 不依赖 git、不依赖 `npm install`，只用 Node 自带的 `fetch` 和系统 `tar`。需要 Node ≥ 18。
+（搭档那一步例外：它们带依赖，必须走 profile 的 pnpm / npm。）
 
 > **为什么要 `--input-type=module` + base64**：`bootstrap.mjs` 是 ESM（用了顶层 `await`），`node -e` 默认按 CommonJS 解析，直接 `eval` 会报 `Cannot use import statement outside a module`。转成 `data:` URL 再动态 `import` 才是正确入口。
+>
+> **为什么参数写进 `globalThis.__SHIELD_ARGV`**：`node -e` 的 `process.argv` 里塞不进脚本参数（`--` 之后的会被 Node 自己解析）。
 
 网络受限时加代理：
 
@@ -288,9 +365,14 @@ $env:HTTPS_PROXY="http://127.0.0.1:7897"
 
 ### 安装会改什么
 
-- 只在 `<profile>/node_modules/` 下创建 `dsh-gateway-shield` 目录，**不碰 profile 的 `cordis.patch.yml`**。
+- 在 `<profile>/node_modules/` 下创建/覆盖 `dsh-gateway-shield` 目录。
+- 往 `<profile>/package.json` 的 `dsh.profile.bundles` **追加**包名（已在则不写；写前备份）。
+  这是唯一一处改 profile 清单的地方，语义与插件面板的 `reconcile()` 一致。
 - 升级时**原地覆盖文件**，不 rename、不删目录（Windows 上 rename 被占用的目录会 EBUSY）。
-- 若检测到早期版本（0.1.x，没有 `dsh.bundle` 声明、靠手写 profile 配置）留下的注册块，会摘掉并备份到 `~/.dsh/dsh-purge/gateway-shield-backups/`。
+- 仅当登记确认成功后，才摘掉早期版本（0.1.x）在 `cordis.patch.yml` 里留下的手写注册块，
+  备份到 `~/.dsh/dsh-purge/gateway-shield-backups/`。
+- `--with-companions` 额外改 `dependencies` 与 lockfile（由 pnpm / npm 写），
+  动手前先备份这两个文件。
 - 不自动重启、不改代理、不动其他插件配置。
 
 ---
@@ -325,7 +407,7 @@ $env:HTTPS_PROXY="http://127.0.0.1:7897"
 | `providers` | `[]` | 空 = 全部；也可写 `["workbuddy"]` 只保护一家 |
 | `paranoid` | `false` | 额外改写真身句变体（超出实测表，属于猜） |
 | `zeroWidth` | `false` | 身份句内部插零宽空格（CN 网关会归一化掉，只对 global 有效） |
-| `verbose` | `false` | 写 DSH 日志 |
+| `verbose` | `false` | 逐请求详细日志；启动那行 `active | …` 不受它控制 |
 
 改行为就改**包内**这份文件（`<profile>/node_modules/dsh-gateway-shield/cordis.patch.yml`），然后重启。
 
@@ -379,12 +461,24 @@ node install.mjs --verify
 ✓ lib/index.js
 ✓ lib/sanitize.js
 ✓ lib/refusal.js
+✓ lib/companions.js
+✓ lib/profile.js
 ✓ cordis.patch.yml
 ✓ dsh.bundle.patch = ./cordis.patch.yml
-✓ profile 无手写注册（由 dsh.bundle 接管）
+✓ dsh.profile.bundles 已收录（DSH 启动时会加载）
+
+搭档：
+· dsh-purge-community    v1.6.84    提示词 / 规则 / 预设，让 Agent 不推脱
+· dsh-connect-workbuddy  未装       把本机登录的 WorkBuddy 模型接进 DSH
+· dsh-qoder-connect      未装       把本机登录的 Qoder 模型接进 DSH
+  补齐：node install.mjs --with-companions
 
 就位。插件管理器应能识别；重启 DSH 后生效。
 ```
+
+`--verify` 会**同时**检查「文件在不在」和「有没有登记」这两件事。只满足前者时
+（例如用 `pnpm add` 装的但没在面板里打开），它会明确写「文件在，但 DSH 启动时不会加载」，
+并以非零码退出。
 
 只想看清洗有没有发生，把 `verbose` 打开，日志会出现：
 
@@ -400,14 +494,17 @@ node install.mjs --verify
 ## 验证
 
 ```bash
-npm test          # 35 项自测 + 13 项端到端
-npm run probe     # 证明 next(opts) 参数被丢弃、this.stream() 重入可行
-npm run verify    # 体检
+npm test                # 38 项自测 + 13 项端到端 + 30 项安装器
+npm run test:companions # 只跑搭档安装器那 30 项（零网络、零依赖）
+npm run probe           # 证明 next(opts) 参数被丢弃、this.stream() 重入可行
+npm run verify          # 体检
 ```
 
-当前状态：**35 / 35、13 / 13 全通过**。
+当前状态：**38 / 38、13 / 13、30 / 30，合计 81 项全通过**。
 
 端到端测试用的是真实 cordis waterfall 语义（`next()` 无参 + `options` 被 `deepFreeze`），不是模拟。
+安装器测试用的是临时 fixture profile：不联网、不调真实包管理器，连「`--dry-run` 一个字节都不写」
+都是断言。
 
 ---
 
@@ -423,7 +520,7 @@ npm run verify    # 体检
 
 ## 卸载
 
-在 DSH 的设置 → 插件里关掉或移除（走 `dsh.bundle` 注册的插件都由管理器管）。
+在 DSH 的设置 → 插件里关掉或移除（面板会同时从 `dsh.profile.bundles` 撤销登记）。
 
 彻底删除：
 
@@ -431,11 +528,17 @@ npm run verify    # 体检
 rm -rf ~/.dsh/profiles/web/node_modules/dsh-gateway-shield
 ```
 
+手改过清单的，记得把 `dsh.profile.bundles` 里的 `dsh-gateway-shield` 一并删掉 ——
+留在名单里但目录不在时，DSH 启动会打一行 `skipping profile bundle` 然后继续跑。
+
 装过早期版本（0.1.x）的，先清手写残留：
 
 ```bash
 node install.mjs --clean
 ```
+
+`--clean` 只在 bundles 已经收录本包时才动手；否则会拒绝，因为那一下会把插件变成
+「文件在、注册没了」的孤儿。
 
 ---
 
@@ -448,14 +551,18 @@ dsh-gateway-shield/
 ├── lib/
 │   ├── index.js          llm/stream 钩子，this.stream() 重入
 │   ├── sanitize.js       15 条网关指纹同义改写
-│   └── refusal.js        拒绝检测 + 加固段（覆盖三种 options 形状）
+│   ├── refusal.js        拒绝检测 + 加固段（覆盖三种 options 形状）
+│   ├── companions.js     搭档三件套：注册表 / 安装计划 / 执行器
+│   └── profile.js        dsh.profile.bundles 登记、清单备份、手写块摘除
 ├── scripts/
-│   ├── selftest.mjs      35 项自测
+│   ├── selftest.mjs      38 项自测
 │   ├── e2e.mjs           13 项端到端
+│   ├── companions-test.mjs   30 项安装器测试（离线、fixture profile）
 │   ├── probe-waterfall.mjs   证明 next(opts) 参数被丢弃
 │   └── probe-reentry.mjs     证明 this.stream() 重入可行且不递归
-├── install.mjs           安装 / 体检 / 清理手写残留
-├── bootstrap.mjs         一行命令安装器
+├── install.mjs           安装 / 登记 / 体检 / 清理，含 --with-companions
+├── bootstrap.mjs         一行命令安装器（下载 tarball，不依赖 git）
+├── CHANGELOG.md          更新记录
 └── LICENSE               MIT
 ```
 
