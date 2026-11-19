@@ -3,6 +3,34 @@
 本文件记录所有值得写下来的改动。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.6.2] - 2026-11-19
+
+**默认反过来：装本体就顺手装破甲。破甲的源换成 `yu994419160/dsh-purge1.7.3-`。**
+
+0.6.0 把搭档整体移出默认路径，理由是「补搭档会 `pnpm add` 并重写 lockfile」。
+但这条理由只在**破甲缺**的时候成立 —— 缺的那次确实该装，装完才有「让模型愿意做」那一半。
+所以 0.6.2 用「缺才装」解决同一个风险，而不是用「默认不装」。
+
+### 改
+
+- **`lib/companions.js`：破甲条目换成 `dsh-purge`**，源 `github:yu994419160/dsh-purge1.7.3-`
+  （旧的 `dsh-purge-community` / `kingcharleslzy-ai/dsh-purge` 不再出现在搭档表里；
+  `armor/` 的角色识别仍然同时认 `dsh-purge-community` 和 `dsh-purge`，老装的照样看得见）。
+- **搭档分两档**，新增 `byDefault` 标记与 `DEFAULT_COMPANION_IDS`：
+  - 默认档 = 破甲（`install.mjs` 不加任何参数就装）
+  - 显式档 = 两个连接器（`--with-companions` / `--all` 才装；Node ≥22.19 且要本机登录）
+- `selectCompanions` 增加 `all` 参数：`only` > `all` > 默认档。`planCompanions` 透传。
+- **`install.mjs` / `bootstrap.mjs` 的 `WITH_COMPANIONS` 改为默认开**（`--no-companions` 才关）。
+  同时搭档失败**一律非零退出**：默认路径里现在包含破甲，静默告警会让用户以为装齐了。
+- `--verify`、`armor/` 的提示文案跟着改：破甲缺失时直接给出
+  `node install.mjs --only dsh-purge`。
+
+### 测试
+
+- `scripts/companions-test.mjs` 跟着改断言：表里 id 换成 `dsh-purge`、spec 换成新源；
+  「默认全选」拆成「默认只选破甲」+「`all: true` 才全选」；计划相关用例显式传 `all: true`；
+  端到端三条改成「默认装破甲」「`--with-companions` 才补连接器」「`--no-companions` 全不碰」。
+
 ## [0.6.1] - 2026-11-19
 
 **修「照文档验不了，所以判定用不了」。功能一直在跑，回执从来没到过。**

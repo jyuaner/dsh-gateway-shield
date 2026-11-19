@@ -19,9 +19,10 @@
 
 通用身份句同义改写 · 软拒绝带加固重试 · 洗 system / messages / tools / toolHistory 四个面 · 零依赖 · 零网络
 
-当前版本 **0.6.1** · 适配 **DSH 0.2.1-rc.1+** · **独立运行，不需要任何搭档**
+当前版本 **0.6.2** · 适配 **DSH 0.2.1-rc.1+** · **运行不依赖任何人；安装时默认顺带装上破甲**
 
-不依赖 [dsh-purge](https://github.com/kingcharleslzy-ai/dsh-purge)，也不依赖任何连接器。
+运行时不依赖 [dsh-purge](https://github.com/yu994419160/dsh-purge1.7.3-)，也不依赖任何连接器；
+但 0.6.2 起 **`node install.mjs` 默认会把破甲一起装上**（已装则跳过，`--no-companions` 可关）。
 行为层的破甲（让模型愿意做）和传输层的护栏（让请求到得了、别在网关被拦）本来就是两件事，
 本插件只管后者 —— 但后者单独就有用。恰好用 WorkBuddy / Qoder 的，
 另有 [dsh-connect-workbuddy](https://github.com/dingminhua/dsh-connect-workbuddy) /
@@ -112,7 +113,7 @@ node armor/armor.mjs --all-profiles --force   # web 与 desktop 都刷新一遍
 
 ### 为什么要「不碰包管理器」这一版
 
-`install.mjs` 补搭档时会 `pnpm add github:kingcharleslzy-ai/dsh-purge`。如果机器上那份破甲
+`install.mjs` 补搭档时会 `pnpm add github:yu994419160/dsh-purge1.7.3-`。如果机器上那份破甲
 本来就是 git 装的、而且已经打过宿主补丁（`~/.dsh/dsh-purge/applied.json`），这条命令会重写
 `pnpm-lock.yaml` 并把那份 purge 重新解析一次 —— 落到另一个 commit，就是换了一个破甲版本，
 用户的补丁状态和注入文本全变。
@@ -126,10 +127,11 @@ node armor/armor.mjs --all-profiles --force   # web 与 desktop 都刷新一遍
 
 | profile | 实际在用的破甲 | 来源 |
 | --- | --- | --- |
-| `web` | `dsh-purge-community` v1.6.84 | `github:kingcharleslzy-ai/dsh-purge` |
+| `web` | `dsh-purge` 1.7.3 | `github:yu994419160/dsh-purge1.7.3-` |
 | `desktop` | `dsh-purge` v1.1.71 | `github:mmparko/dsh-purge` |
 
-`install.mjs` 的搭档表写死了 `dsh-purge-community`，在 desktop 那个 profile 里它什么都看不到。
+`install.mjs` 的搭档表现在写的是 `dsh-purge`（单数，指向 `yu994419160/dsh-purge1.7.3-`），
+在还装着旧名 `dsh-purge-community` 的机器上它什么都看不到。
 `armor/` 按角色找（`dsh-purge-community` / `dsh-purge` / 任何名字带 `purge` 的依赖），
 并且会主动报出「同一个 profile 装了两个破甲」这类重复注入风险。
 
@@ -153,34 +155,36 @@ node armor/armor.mjs --all-profiles --force   # web 与 desktop 都刷新一遍
 ```
 复检通过：
   ✓ desktop  shield v0.4.0 已登记　破甲 dsh-purge@1.1.71
-  ✓ web      shield v0.4.0 已登记　破甲 dsh-purge-community@1.6.84
+  ✓ web      shield v0.6.2 已登记　破甲 dsh-purge@1.7.3
 ```
 
 ---
 
-## 可选搭档：不装也能跑
+## 搭档：装本体时顺带装破甲
 
-本插件是零依赖的纯宿主包，`node install.mjs` **只装它自己**。原因是挂载点决定的：
-`llm/stream` 对所有 provider 生效，既不需要连接器提供模型，也不需要 `dsh-purge` 提供行为层。
+本插件是零依赖的纯宿主包。**0.6.2 起 `node install.mjs` 默认连破甲 `dsh-purge` 一起装** ——
+没有它，本插件只剩「清洗 + 重试」那一半，用户装完看到的仍然是「模型不肯做」。
+
+两个连接器不进默认路径：它们要求 Node ≥ 22.19，还得在本机登录一次客户端，属于
+「你真要用 WorkBuddy / Qoder」才装的东西，不该替人决定。
 
 ```bash
-# 只装本体（默认）
+# 默认：本体 + 破甲 dsh-purge
 node install.mjs
 
-# 顺带把缺的搭档也补上
+# 再加两个连接器
 node install.mjs --with-companions
 
-# 或者一行命令装本体，不依赖 git
+# 只要本体，一个搭档都不碰
+node install.mjs --no-companions
+
+# 或者一行命令装本体 + 破甲，不依赖 git
 node --input-type=module -e "const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
 ```
 
-**为什么默认不补搭档**：补搭档那一步会 `pnpm add` 并重写 `pnpm-lock.yaml`。如果机器上的破甲是
-`github:` 来源、而且已经打过宿主补丁，重新解析一次就可能落到另一个 commit —— 等于悄悄换掉一个
-破甲版本。这种事该由人显式要求，不该是默认。
-
-`--with-companions` 时是**先检测再下载**：已经在 `node_modules` 里、清单健康的直接跳过，不发任何
-请求；只缺的那几个才合成一条 `pnpm add` / `npm install`。所以跑第二遍是秒过，`--dry-run` 里会明写
-「已装 3 个 → 跳过；缺 0 个 → 无需下载」。
+**「先检测再下载」对两档都生效**：已经在 `node_modules` 里、清单健康的直接跳过，不发任何请求。
+所以**破甲已装时，默认路径不会执行 `pnpm add`，也不会重写 `pnpm-lock.yaml`** ——
+0.6.0 把它移出默认路径要躲的正是这个风险，现在靠「缺才装」解决，而不是靠「默认不装」。
 
 它按这个顺序做事：
 
@@ -190,16 +194,16 @@ node --input-type=module -e "const s=await(await fetch('https://raw.githubuserco
 | 1 | 把本包放进 `<profile>/node_modules/dsh-gateway-shield` | 文件到位 |
 | 2 | 把包名**追加进 `dsh.profile.bundles`** | DSH 只从这里读组合包；只放文件不登记，启动时一行都不跑 |
 | 3 | 确认登记成功之后，才摘掉早期手写注册块 | 顺序反过来会摘出一个谁都不加载的孤儿目录 |
-| 4 | （仅 `--with-companions`）检测搭档：已装的跳过，缺的合成一条 `pnpm add` | 它们各自带依赖，直接复制文件会得到一个 import 就炸的目录 |
-| 5 | （同上）把就位的搭档登记进 `dsh.profile.bundles`（清单有毒的拒登） | 同第 2 步；宁可插件不生效，也不让 DSH 死 |
+| 4 | 检测搭档：默认只处理破甲，加 `--with-companions` 才连两个连接器；已装的跳过，缺的合成一条 `pnpm add` | 它们各自带依赖，直接复制文件会得到一个 import 就炸的目录 |
+| 5 | 把就位的搭档登记进 `dsh.profile.bundles`（清单有毒的拒登） | 同第 2 步；宁可插件不生效，也不让 DSH 死 |
 
 可控参数：
 
 | 参数 | 作用 |
 | --- | --- |
-| `--with-companions`（别名 `--all`） | 顺带补齐缺的搭档；搭档失败时以非零码退出 |
-| `--no-companions` | 兼容写法，等同于默认行为（别名 `--without-companions`） |
-| `--only a,b` | 只处理其中几个搭档（隐含 `--with-companions`） |
+| `--with-companions`（别名 `--all`） | 在默认的破甲之外，再补两个连接器 |
+| `--no-companions` | 一个搭档都不碰（别名 `--without-companions`） |
+| `--only a,b` | 只处理指定搭档，例如 `--only dsh-purge` |
 | `--skip a,b` | 跳过其中几个 |
 | `--pm pnpm\|npm` | 指定包管理器（默认按 profile 的 lockfile 判断） |
 | `--dry-run` | 只打印计划，不动盘 |
@@ -207,13 +211,13 @@ node --input-type=module -e "const s=await(await fetch('https://raw.githubuserco
 | `--profile web` | 指定 profile |
 | `--dsh-home PATH` | 指定 DSH 数据目录（默认 `~/.dsh`） |
 
-搭档清单（全部可选，顺序即追加进 `dsh.profile.bundles` 的顺序）：
+搭档清单（顺序即追加进 `dsh.profile.bundles` 的顺序）：
 
-| id | 层 | 作用 | Node |
-| --- | --- | --- | --- |
-| `dsh-purge-community` | 行为 | 提示词 / 规则 / 预设，让 Agent 不推脱 | ≥ 18 |
-| `dsh-connect-workbuddy` | 路由 | WorkBuddy 模型 provider | ≥ 22.19 |
-| `dsh-qoder-connect` | 路由 | Qoder 模型 provider | ≥ 22.19 |
+| id | 层 | 作用 | Node | 什么时候装 |
+| --- | --- | --- | --- | --- |
+| `dsh-purge` | 行为 | 提示词 / 规则 / 预设，让 Agent 不推脱（`github:yu994419160/dsh-purge1.7.3-`） | ≥ 18 | **默认** |
+| `dsh-connect-workbuddy` | 路由 | WorkBuddy 模型 provider | ≥ 22.19 | `--with-companions` |
+| `dsh-qoder-connect` | 路由 | Qoder 模型 provider | ≥ 22.19 | `--with-companions` |
 
 装依赖前会先把 profile 的 `package.json` 和 lockfile 备份到
 `~/.dsh/dsh-purge/gateway-shield-backups/`；装失败按提示把备份盖回去即可回到装之前。
@@ -453,14 +457,14 @@ $env:NODE_USE_ENV_PROXY="1"; $env:HTTPS_PROXY="http://127.0.0.1:7897"   # 再重
 **想让裸包名也能搜到**：得把包发布到 npm —— 那个框按名字查的是 registry。
 步骤、核对表与三条禁忌都在 [docs/PUBLISHING.md](docs/PUBLISHING.md)。
 
-### 方式零：一条命令装本体（推荐）
+### 方式零：一条命令装本体 + 破甲（推荐）
 
 ```bash
 node install.mjs
 ```
 
-本包 + dsh-purge + 两个连接器（已装的自动跳过），装完还顺手登记进 `dsh.profile.bundles`。
-细节见上面的 [可选搭档](#可选搭档不装也能跑)。
+本包 + `dsh-purge`（已装则跳过），装完顺手登记进 `dsh.profile.bundles`。
+两个连接器要用的话再加 `--with-companions`。细节见上面的 [搭档](#搭档装本体时顺带装破甲)。
 
 ### 方式一：作为依赖装
 
@@ -488,9 +492,9 @@ pnpm add github:jyuaner/dsh-gateway-shield
 ```bash
 git clone https://github.com/jyuaner/dsh-gateway-shield.git
 cd dsh-gateway-shield
-node install.mjs                  # 本体（默认不碰搭档）
-node install.mjs --with-companions  # 顺便补齐缺的搭档
-node install.mjs --no-companions  # 只要本体
+node install.mjs                    # 本体 + 破甲（默认）
+node install.mjs --with-companions  # 再加两个连接器
+node install.mjs --no-companions    # 只要本体
 ```
 
 `install.mjs` 做四件事：预检清单 → 放文件 → 登记 `dsh.profile.bundles` →
@@ -640,7 +644,7 @@ node install.mjs --verify
 ✓ dsh.profile.bundles 已收录（DSH 启动时会加载）
 
 搭档：
-· dsh-purge-community    v1.6.84    提示词 / 规则 / 预设，让 Agent 不推脱
+· dsh-purge              v1.7.3    提示词 / 规则 / 预设，让 Agent 不推脱
 · dsh-connect-workbuddy  未装       把本机登录的 WorkBuddy 模型接进 DSH
 · dsh-qoder-connect      未装       把本机登录的 Qoder 模型接进 DSH
   补齐：node install.mjs --only dsh-connect-workbuddy,dsh-qoder-connect
@@ -776,7 +780,7 @@ dsh-gateway-shield/
 │   ├── provider-coverage-test.mjs 21 项全模型覆盖（认档 / 洗面 / 边界）
 │   ├── probe-waterfall.mjs        证明 next(opts) 参数被丢弃
 │   └── probe-reentry.mjs          证明 this.stream() 重入可行且不递归
-├── install.mjs           安装 / 登记 / 体检 / 清理；默认只装本体
+├── install.mjs           安装 / 登记 / 体检 / 清理；默认连破甲一起装
 ├── bootstrap.mjs         一行命令安装器（下载 tarball，不依赖 git）
 ├── docs/
 │   ├── README.en.md      英文说明（停在 0.3.x）

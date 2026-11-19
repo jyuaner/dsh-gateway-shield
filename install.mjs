@@ -21,18 +21,23 @@
  * 登记成功之后**才能摘，否则会出现「文件在、注册没了」的孤儿状态。
  *
  * 用法：
- *   node install.mjs                        放文件 + 登记（不碰搭档）
- *   node install.mjs --with-companions      顺带补齐缺的搭档（dsh-purge / 两个连接器）
- *   node install.mjs --no-companions        兼容写法，等同于默认行为
+ *   node install.mjs                        放文件 + 登记 + 顺带装破甲（dsh-purge）
+ *   node install.mjs --with-companions      连两个连接器一起（WorkBuddy / Qoder）
+ *   node install.mjs --no-companions        只装本体，一个搭档都不碰
  *   node install.mjs --only dsh-qoder-connect   只处理指定搭档（可逗号分隔）
- *   node install.mjs --skip dsh-purge-community
+ *   node install.mjs --skip dsh-purge
  *   node install.mjs --verify               体检：清单 / 文件 / 声明 / 登记 / 搭档
  *   node install.mjs --clean                清掉早期版本的手写注册块
  *   node install.mjs --dry-run              只打印计划，不动盘
  *
- * 从 0.6.0 起**搭档是可选的**：本插件挂在 `llm/stream` 上，对所有 provider 生效，
- * 不需要连接器提供模型、也不需要 dsh-purge 提供行为层。所以默认只装本体。
- * 要顺带补搭档，显式加 `--with-companions`。
+ * 搭档分两档：
+ *   默认档 —— 破甲 `dsh-purge`（`byDefault: true`），装本体时一起装。
+ *             没有它本插件只剩「清洗 + 重试」一半，模型依然不肯做。
+ *   显式档 —— 两个连接器，要 `--with-companions` / `--all` 才装：Node ≥22.19，
+ *             还要在本机登录一次客户端。
+ *
+ * 两档都遵守「先检测、只下载缺的」：已装且清单健康的直接 skip，不发网络请求，
+ * 也就不会重写 lockfile。
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -73,15 +78,21 @@ function list(name) {
 const DRY = has("dry-run");
 const VERIFY = has("verify");
 const CLEAN = has("clean");
-/** 搭档默认一起处理 —— 这才是「装这个就一条命令」的意思。 */
+/** `--no-companions` 是唯一「一个搭档都不碰」的开关。 */
 const NO_COMPANIONS = has("no-companions") || has("without-companions");
-/** 显式点名要求搭档时，搭档失败算失败。 */
-const EXPLICIT_COMPANIONS = has("with-companions") || has("all") || list("only").length > 0;
+/** 显式要「全部搭档」：在默认集之外再补两个连接器。 */
+const ALL_COMPANIONS = has("with-companions") || has("all");
 /**
- * 0.6.0 起默认**不补**搭档：本插件对所有 provider 生效，连接器和 dsh-purge 都是可选的。
- * 只有显式要求时才碰它们 —— 那一步会 `pnpm add` 并重写 lock，不该在用户没要求时发生。
+ * 0.6.2 起默认**顺带装破甲**。
+ *
+ * 只有破甲（`byDefault: true`）进默认路径：没有它，本插件只剩「清洗 + 重试」那一半，
+ * 用户装完看到的仍然是「模型不肯做」。两个连接器不进默认路径 —— 它们要 Node ≥22.19
+ * 且必须在本机登录一次，属于「你真要用 WorkBuddy / Qoder」才装的东西。
+ *
+ * 已经装过的破甲会被 detectInstalled 命中并 skip，**不会**触发 `pnpm add`，
+ * 也就不会重写 lockfile —— 那正是 0.6.0 把它移出默认路径要躲的风险。
  */
-const WITH_COMPANIONS = EXPLICIT_COMPANIONS && !NO_COMPANIONS;
+const WITH_COMPANIONS = !NO_COMPANIONS;
 
 const ID = "dsh-gateway-shield";
 
@@ -303,7 +314,7 @@ function install() {
   log(`  profile ${profile.name}`);
   log(`  目标    ${TARGET}`);
   log(`  声明    dsh.bundle.patch = ${decl.rel}`);
-  log(`  搭档    ${WITH_COMPANIONS ? "一并处理：先检测，只下载缺的" : "不碰（本插件不依赖连接器；要补加 --with-companions）"}`);
+  log(`  搭档    ${WITH_COMPANIONS ? `一并处理：默认装破甲${ALL_COMPANIONS ? " + 两个连接器" : ""}，先检测、只下载缺的` : "不碰（--no-companions）"}`);
   log("");
 
   // ---- 装前预检：这份清单会不会让 DSH 起不来 ----
@@ -383,18 +394,16 @@ function install() {
 }
 
 /**
- * 搭档安装失败的处理：显式要求时算失败，默认模式只告警。
- * 默认模式之所以不失败退出，是因为插件本身已经装好了 —— 用一个可选的
- * 依赖把「主功能已就位」的故事改写成「安装失败」是误导。
+ * 搭档安装失败的处理。
+ *
+ * 0.6.2 起默认就会装破甲，所以默认模式下失败也**算失败**：以前「只告警、
+ * 退出码 0」是因为搭档纯属可选；现在用户不加参数就等于要了破甲，静默放过会
+ * 让人以为装齐了。明确加了 `--no-companions` 的才不走到这里。
  */
 function companionFailure(message) {
-  if (EXPLICIT_COMPANIONS) {
-    log(`  ✗ ${message}`);
-    process.exitCode = 1;
-  } else {
-    log(`  ! ${message}`);
-    log("  · 插件本体已装好，搭档可以之后补：node install.mjs --only <id>");
-  }
+  log(`  ✗ ${message}`);
+  process.exitCode = 1;
+  log("  · 插件本体已装好；搭档可以之后补：node install.mjs --only <id>");
 }
 
 function installCompanionSet() {
@@ -402,13 +411,14 @@ function installCompanionSet() {
     profileDir: profile.dir,
     only: list("only"),
     skip: list("skip"),
+    all: ALL_COMPANIONS,
     pm: opt("pm", undefined),
   });
 
   if (plan.unknown.length > 0) {
     log(`✗ 未知的插件 id：${plan.unknown.join(", ")}`);
     log(`  可选：${COMPANIONS.map((c) => c.id).join(" / ")}`);
-    if (EXPLICIT_COMPANIONS) process.exitCode = 1;
+    process.exitCode = 1;
     return;
   }
 

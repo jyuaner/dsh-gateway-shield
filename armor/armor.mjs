@@ -9,13 +9,16 @@
  *
  * 整合版之所以把「补搭档」这一步砍掉，不是省事，而是因为它会伤到用户已经在用的东西：
  *
- *   `pnpm add github:kingcharleslzy-ai/dsh-purge`
+ *   `pnpm add github:yu994419160/dsh-purge1.7.3-`
  *     → 重写 pnpm-lock.yaml
- *     → 用户当前那份 `github:kingcharleslzy-ai/dsh-purge`（v1.6.84）会被重新解析
+ *     → 用户当前那份 `github:yu994419160/dsh-purge1.7.3-` 会被重新解析
  *     → 落到另一个 commit 就是换了一个破甲版本，用户的补丁状态、注入文本全变
  *
  * 本插件是零依赖的纯宿主包（`llm/stream` 钩子 + 一个 yml），复制文件就够用。
  * 所以这里的策略是：**已就位的破甲 / 连接器一律不动，只复制本插件自己的文件。**
+ *
+ * 破甲没装时的确需要走一次包管理器 —— 那条路交给 `install.mjs`（0.6.2 起默认
+ * 就装破甲），本文件只负责报告「还缺什么」：`node install.mjs --only dsh-purge`。
  *
  * ## 用法
  *
@@ -290,7 +293,7 @@ function main() {
     const a = p.armor;
     log(
       `  ✓ ${p.name.padEnd(8)} shield v${a.version} 已登记` +
-        `　破甲 ${p.purge.candidates.filter((c) => c.installed).map((c) => `${c.id}@${c.version}`).join(", ") || "未装（请自行补齐）"}`,
+        `　破甲 ${p.purge.candidates.filter((c) => c.installed).map((c) => `${c.id}@${c.version}`).join(", ") || "未装 → 补：node install.mjs --only dsh-purge"}`,
     );
   }
   log("");

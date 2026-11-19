@@ -1,6 +1,6 @@
 {
   "name": "dsh-gateway-shield",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "description": "DSH 出网前的提示词栅栏：按 provider 分档的指纹同义改写（system / messages / tools / toolHistory 四个面）+ 软拒绝带加固重试。provider 无关，装一次对全模型生效，不依赖任何连接器或破甲插件。",
   "type": "module",
   "main": "lib/index.js",

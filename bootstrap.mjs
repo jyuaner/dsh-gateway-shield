@@ -5,9 +5,13 @@
  * 用法（别人复制这一行就能装）：
  *   node --input-type=module -e "const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
  *
- * 这一行现在就是完整的：搭档三件套（dsh-purge + WorkBuddy / Qoder 连接器）
- * 默认一并处理，而且**先检测**——已经在 profile 里的直接跳过，只下载缺的那几个。
- * 只想要本插件、不要搭档：
+ * 这一行现在就是完整的：本体 + 破甲 `dsh-purge`（默认档），而且**先检测**——
+ * 已经在 profile 里的直接跳过，只下载缺的。
+ *
+ * 连两个连接器一起（WorkBuddy / Qoder，需要 Node ≥22.19 且要本机登录）：
+ *   node --input-type=module -e "globalThis.__SHIELD_ARGV=['--with-companions']; const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
+ *
+ * 只想要本插件、一个搭档都不碰：
  *   node --input-type=module -e "globalThis.__SHIELD_ARGV=['--no-companions']; const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
  *
  * 为什么参数要写进 `globalThis.__SHIELD_ARGV` 而不是命令行末尾：
@@ -50,10 +54,11 @@ const ID = "dsh-gateway-shield";
 const ARGV = Array.isArray(globalThis.__SHIELD_ARGV) ? globalThis.__SHIELD_ARGV.map(String) : process.argv.slice(2);
 const has = (n) => ARGV.includes(`--${n}`);
 const DRY = has("dry-run");
-/** 搭档默认一并处理；--no-companions 才是「只要本插件」。 */
+/** `--no-companions` 是唯一「一个搭档都不碰」的开关。 */
 const NO_COMPANIONS = has("no-companions") || has("without-companions");
-/** 显式点名要求搭档时，搭档失败算失败；默认模式只告警。 */
-const EXPLICIT_COMPANIONS = has("with-companions") || has("all") || ARGV.includes("--only");
+/** 显式要「全部搭档」：在默认集（破甲）之外再补两个连接器。 */
+const ALL_COMPANIONS = has("with-companions") || has("all");
+/** 0.6.2 起默认就装破甲，所以搭档失败一律算失败（`--no-companions` 走不到这里）。 */
 const WITH_COMPANIONS = !NO_COMPANIONS;
 function list(name) {
   const out = [];
@@ -289,16 +294,16 @@ if (fs.existsSync(profilePatch) && (listed || DRY)) {
 // ---------------------------------------------------------------- 搭档
 
 if (WITH_COMPANIONS) {
-  log(`[5/5] 搭档：先检测，只装缺的`);
+  log(`[5/5] 搭档：${ALL_COMPANIONS ? "破甲 + 两个连接器" : "默认装破甲 dsh-purge"}；先检测，只装缺的`);
   const companions = await import(pathToFileURL(path.join(libRoot, "lib", "companions.js")).href);
   const only = list("only");
   const skip = list("skip");
-  const plan = companions.planCompanions({ profileDir, only, skip, pm: opt("pm") });
+  const plan = companions.planCompanions({ profileDir, only, skip, all: ALL_COMPANIONS, pm: opt("pm") });
 
   if (plan.unknown.length > 0) {
     log(`      ✗ 未知的插件 id：${plan.unknown.join(", ")}`);
     log(`        可选：${companions.COMPANIONS.map((c) => c.id).join(" / ")}`);
-    if (EXPLICIT_COMPANIONS) process.exitCode = 1;
+    process.exitCode = 1;
   } else {
     const { summary } = plan;
     log(`      已装 ${summary.skipped} 个 → 跳过；缺 ${summary.download} 个 → ${summary.download ? "下载" : "无需下载"}`);
@@ -317,10 +322,10 @@ if (WITH_COMPANIONS) {
     } else if (res.reason === "dry-run") {
       log(`      [dry-run] 将执行：${res.command}`);
     } else if (!res.ok) {
-      log(`      ${EXPLICIT_COMPANIONS ? "✗" : "!"} ${res.error}`);
+      log(`      ✗ ${res.error}`);
       if (res.hint) log(`        ${res.hint}`);
-      if (EXPLICIT_COMPANIONS) process.exitCode = 1;
-      else log("      插件本体已装好，搭档可以之后补：node install.mjs --only <id>");
+      process.exitCode = 1;
+      log("      插件本体已装好，搭档可以之后补：node install.mjs --only <id>");
     } else {
       log(`      ✓ ${res.command}`);
       for (const r of res.results) log(`      ✓ ${r.id.padEnd(22)} v${r.version ?? "?"}`);
@@ -336,7 +341,7 @@ if (WITH_COMPANIONS) {
       );
     else if (!reg.ok) {
       log(`      ✗ 登记失败：${reg.error}`);
-      if (EXPLICIT_COMPANIONS) process.exitCode = 1;
+      process.exitCode = 1;
     } else if (reg.added.length > 0) log(`      ✓ 已登记：${reg.added.join(", ")}`);
     for (const s of reg.skipped ?? []) log(`      ! ${s.name} 跳过登记：${s.reason}`);
 

@@ -16,6 +16,9 @@
 > `console` in addition to `ctx.logger`, because cordis' `LoggerService` only keeps
 > an in-memory ring buffer — `ctx.logger.info()` never reached stdout or any log
 > file, so the documented "check the log for `active`" step could never pass.
+> 0.6.2 note: `node install.mjs` now installs `dsh-purge`
+> (`github:yu994419160/dsh-purge1.7.3-`) by default; the two connectors still need
+> `--with-companions`, and `--no-companions` keeps the old "shield only" behaviour.
 
 `dsh-purge` only breaks DSH's own prompts — it cannot reach models brought in
 through WorkBuddy or Qoder. Those have their own gateways and their own refusal

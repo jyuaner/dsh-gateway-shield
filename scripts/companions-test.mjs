@@ -11,7 +11,7 @@
  *   - 登记：追加进 dsh.profile.bundles，保持既有顺序，拒绝没有 dsh.bundle 的包
  *   - 登记：拒绝会让 DSH 起不来的清单（0.3.0 事故的闸门）
  *   - 手写块摘除：有缩进、有相邻条目也不误伤
- *   - 端到端：默认不碰搭档；`--with-companions` 才补；`--dry-run` 一个字节都不写
+ *   - 端到端：默认顺带装破甲；`--with-companions` 才补两个连接器；`--dry-run` 一个字节都不写
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -23,6 +23,7 @@ import { fileURLToPath } from "node:url";
 import {
   COMPANIONS,
   COMPANION_IDS,
+  DEFAULT_COMPANION_IDS,
   detectInstalled,
   detectPackageManager,
   installCompanions,
@@ -143,7 +144,7 @@ function poisonManifest(dir, id, version = "0.3.0") {
 
 test("三件套表形状", () => {
   assert.equal(COMPANIONS.length, 3);
-  assert.deepEqual(COMPANION_IDS, ["dsh-purge-community", "dsh-connect-workbuddy", "dsh-qoder-connect"]);
+  assert.deepEqual(COMPANION_IDS, ["dsh-purge", "dsh-connect-workbuddy", "dsh-qoder-connect"]);
   const ids = new Set(COMPANIONS.map((c) => c.id));
   assert.equal(ids.size, 3, "id 不能重复");
   for (const c of COMPANIONS) {
@@ -158,16 +159,23 @@ test("两个连接器要求 Node 22.19，purge 只要 18", () => {
   const byId = new Map(COMPANIONS.map((c) => [c.id, c]));
   assert.deepEqual(byId.get("dsh-connect-workbuddy").minNode, [22, 19]);
   assert.deepEqual(byId.get("dsh-qoder-connect").minNode, [22, 19]);
-  assert.deepEqual(byId.get("dsh-purge-community").minNode, [18, 0]);
+  assert.deepEqual(byId.get("dsh-purge").minNode, [18, 0]);
 });
 
 // ---------------------------------------------------------------- 选子集
 
-test("默认全选，顺序即安装顺序", () => {
+test("默认只选 byDefault 那几个（破甲），顺序即安装顺序", () => {
   const { selected, unknown } = selectCompanions();
+  assert.deepEqual(DEFAULT_COMPANION_IDS, ["dsh-purge"]);
+  assert.equal(selected.length, 1);
+  assert.deepEqual(selected.map((c) => c.id), DEFAULT_COMPANION_IDS);
+  assert.deepEqual(unknown, []);
+});
+
+test("all: true 才全选（三个）", () => {
+  const { selected } = selectCompanions({ all: true });
   assert.equal(selected.length, 3);
   assert.deepEqual(selected.map((c) => c.id), COMPANION_IDS);
-  assert.deepEqual(unknown, []);
 });
 
 test("--only 取子集", () => {
@@ -176,13 +184,13 @@ test("--only 取子集", () => {
 });
 
 test("--skip 排除", () => {
-  const { selected } = selectCompanions({ skip: ["dsh-purge-community"] });
+  const { selected } = selectCompanions({ all: true, skip: ["dsh-purge"] });
   assert.deepEqual(selected.map((c) => c.id), ["dsh-connect-workbuddy", "dsh-qoder-connect"]);
 });
 
 test("--only 与 --skip 同时用，skip 优先", () => {
-  const { selected } = selectCompanions({ only: ["dsh-purge-community", "dsh-qoder-connect"], skip: ["dsh-qoder-connect"] });
-  assert.deepEqual(selected.map((c) => c.id), ["dsh-purge-community"]);
+  const { selected } = selectCompanions({ only: ["dsh-purge", "dsh-qoder-connect"], skip: ["dsh-qoder-connect"] });
+  assert.deepEqual(selected.map((c) => c.id), ["dsh-purge"]);
 });
 
 test("未知 id 单独回报，不静默吞掉", () => {
@@ -205,13 +213,21 @@ test("Node 下限判定", () => {
 
 // ---------------------------------------------------------------- 计划
 
-test("空 profile：三个都缺，用 pnpm 一条命令", () => {
+test("空 profile：默认只装破甲，一条 pnpm 命令", () => {
   const dir = makeProfile();
   const plan = planCompanions({ profileDir: dir, nodeVersion: "24.19.0" });
   assert.equal(plan.pm, "pnpm");
+  assert.equal(plan.todo.length, 1);
+  assert.deepEqual(plan.todo.map((t) => t.spec), ["github:yu994419160/dsh-purge1.7.3-"]);
+  assert.deepEqual(plan.warnings, []);
+});
+
+test("空 profile + all：三个都缺，一条命令三个 spec", () => {
+  const dir = makeProfile();
+  const plan = planCompanions({ profileDir: dir, all: true, nodeVersion: "24.19.0" });
   assert.equal(plan.todo.length, 3);
   assert.deepEqual(plan.todo.map((t) => t.spec), [
-    "github:kingcharleslzy-ai/dsh-purge",
+    "github:yu994419160/dsh-purge1.7.3-",
     "github:dingminhua/dsh-connect-workbuddy",
     "github:masknull/dsh-qoder-connect",
   ]);
@@ -219,18 +235,25 @@ test("空 profile：三个都缺，用 pnpm 一条命令", () => {
 });
 
 test("已装的跳过，缺的才装", () => {
-  const dir = makeProfile({ ids: ["dsh-purge-community"] });
-  const plan = planCompanions({ profileDir: dir, nodeVersion: "24.19.0" });
-  const purge = plan.items.find((i) => i.id === "dsh-purge-community");
+  const dir = makeProfile({ ids: ["dsh-purge"] });
+  const plan = planCompanions({ profileDir: dir, all: true, nodeVersion: "24.19.0" });
+  const purge = plan.items.find((i) => i.id === "dsh-purge");
   assert.equal(purge.action, "skip");
   assert.equal(purge.installed, true);
   assert.equal(purge.version, "1.0.0");
   assert.equal(plan.todo.length, 2);
 });
 
+test("破甲已装时默认路径一个下载都不发", () => {
+  const dir = makeProfile({ ids: ["dsh-purge"] });
+  const plan = planCompanions({ profileDir: dir, nodeVersion: "24.19.0" });
+  assert.equal(plan.todo.length, 0);
+  assert.deepEqual(plan.summary, { total: 1, skipped: 1, download: 0 });
+});
+
 test("Node 太老时对连接器出告警", () => {
   const dir = makeProfile();
-  const plan = planCompanions({ profileDir: dir, nodeVersion: "20.11.1" });
+  const plan = planCompanions({ profileDir: dir, all: true, nodeVersion: "20.11.1" });
   assert.equal(plan.warnings.length, 2, plan.warnings.join(" | "));
   assert.ok(plan.warnings.every((w) => w.includes("22.19")));
 });
@@ -276,7 +299,7 @@ test("dry-run 不执行、不写备份", () => {
 test("成功路径：一条命令装完全部，并复查目录", () => {
   const dir = makeProfile();
   const backupDir = path.join(dir, ".bak");
-  const plan = planCompanions({ profileDir: dir, nodeVersion: "24.19.0" });
+  const plan = planCompanions({ profileDir: dir, all: true, nodeVersion: "24.19.0" });
   const calls = [];
   const res = installCompanions({
     profileDir: dir,
@@ -323,7 +346,7 @@ test("失败路径：报错带备份与回滚线索", () => {
 
 test("命令成功但目录没出现 → 也不算成功", () => {
   const dir = makeProfile();
-  const plan = planCompanions({ profileDir: dir, nodeVersion: "24.19.0" });
+  const plan = planCompanions({ profileDir: dir, all: true, nodeVersion: "24.19.0" });
   const res = installCompanions({ profileDir: dir, plan, run: () => ({ code: 0 }) });
   assert.equal(res.ok, false);
   assert.equal(res.failures.length, 3);
@@ -350,25 +373,25 @@ test("幂等：第二次是 no-op", () => {
 
 test("detectInstalled 读出版本", () => {
   const dir = makeProfile({ ids: ["dsh-qoder-connect"] });
-  const state = detectInstalled(dir, ["dsh-qoder-connect", "dsh-purge-community"]);
+  const state = detectInstalled(dir, ["dsh-qoder-connect", "dsh-purge"]);
   assert.equal(state.get("dsh-qoder-connect").installed, true);
   assert.equal(state.get("dsh-qoder-connect").version, "1.0.0");
   assert.equal(state.get("dsh-qoder-connect").startable, true);
-  assert.equal(state.get("dsh-purge-community").installed, false);
+  assert.equal(state.get("dsh-purge").installed, false);
 });
 
 test("先检测：已装且健康的不进下载清单", () => {
   const dir = makeProfile({ ids: COMPANION_IDS });
-  const plan = planCompanions({ profileDir: dir, nodeVersion: "24.19.0" });
+  const plan = planCompanions({ profileDir: dir, all: true, nodeVersion: "24.19.0" });
   assert.deepEqual(plan.todo, [], "没有缺的就不该有下载项");
   assert.deepEqual(plan.summary, { total: 3, skipped: 3, download: 0 });
 });
 
 test("先检测：毒清单不算「已就位」，会被要求重装并告警", () => {
-  const dir = makeProfile({ ids: ["dsh-purge-community"] });
-  poisonManifest(dir, "dsh-purge-community");
-  const plan = planCompanions({ profileDir: dir, nodeVersion: "24.19.0" });
-  const item = plan.items.find((i) => i.id === "dsh-purge-community");
+  const dir = makeProfile({ ids: ["dsh-purge"] });
+  poisonManifest(dir, "dsh-purge");
+  const plan = planCompanions({ profileDir: dir, all: true, nodeVersion: "24.19.0" });
+  const item = plan.items.find((i) => i.id === "dsh-purge");
   assert.equal(item.installed, true);
   assert.equal(item.broken, true);
   assert.equal(item.action, "install", "坏的要重装，不是跳过");
@@ -433,8 +456,8 @@ test("登记：拒绝会让 DSH 起不来的清单", () => {
 
 test("登记：registerBundles 也拦住毒清单", () => {
   const dir = makeProfile();
-  poisonManifest(dir, "dsh-purge-community");
-  const res = registerBundles({ profileDir: dir, ids: ["dsh-purge-community"], backupDir: path.join(dir, ".bak") });
+  poisonManifest(dir, "dsh-purge");
+  const res = registerBundles({ profileDir: dir, ids: ["dsh-purge"], backupDir: path.join(dir, ".bak") });
   assert.deepEqual(res.added, []);
   assert.match(res.skipped[0].reason, /起不来/);
 });
@@ -443,7 +466,7 @@ test("登记 dry-run：只报真正会新增的，且不写盘", () => {
   const dir = makeProfile({ ids: COMPANION_IDS });
   registerBundles({ profileDir: dir, ids: ["dsh-qoder-connect"] });
   const dry = registerBundles({ profileDir: dir, ids: COMPANION_IDS, dryRun: true });
-  assert.deepEqual(dry.added, ["dsh-purge-community", "dsh-connect-workbuddy"]);
+  assert.deepEqual(dry.added, ["dsh-purge", "dsh-connect-workbuddy"]);
   assert.deepEqual(dry.already, ["dsh-qoder-connect"]);
   const bundles = bundlesOf(readJson(path.join(dir, "package.json")));
   assert.deepEqual(bundles.filter((b) => COMPANION_IDS.includes(b)), ["dsh-qoder-connect"]);
@@ -528,25 +551,27 @@ test("install.mjs --dry-run：一个字节都不写", () => {
   assert.equal(fs.existsSync(path.join(profileDir, "node_modules", "dsh-gateway-shield")), false, "文件被复制了");
 });
 
-test("install.mjs 默认不碰搭档（全模型，不依赖连接器）", () => {
+test("install.mjs 默认顺带装破甲（不再需要额外参数）", () => {
   const { home } = makeHome();
   const res = spawnSync(process.execPath, [INSTALL, "--dry-run", "--dsh-home", home], { encoding: "utf8" });
   const out = `${res.stdout}${res.stderr}`;
   assert.equal(res.status, 0, out);
-  assert.match(out, /不碰（本插件不依赖连接器；要补加 --with-companions）/);
-  assert.doesNotMatch(out, /pnpm add/, "默认不该出现任何下载命令");
+  assert.match(out, /默认装破甲/);
+  assert.match(out, /pnpm add --save-prod github:yu994419160\/dsh-purge1\.7\.3-/);
+  assert.doesNotMatch(out, /dsh-connect-workbuddy/, "两个连接器不该进默认路径");
 });
 
-test("install.mjs --with-companions 才补齐缺的搭档", () => {
+test("install.mjs --with-companions 才补两个连接器", () => {
   const { home } = makeHome();
   const res = spawnSync(process.execPath, [INSTALL, "--dry-run", "--with-companions", "--dsh-home", home], {
     encoding: "utf8",
   });
   const out = `${res.stdout}${res.stderr}`;
   assert.equal(res.status, 0, out);
-  assert.match(out, /先检测，只下载缺的/);
+  assert.match(out, /一并处理/);
   assert.match(out, /已装 0 个 → 跳过；缺 3 个 →/);
-  assert.match(out, /pnpm add --save-prod github:kingcharleslzy-ai\/dsh-purge/);
+  assert.match(out, /pnpm add --save-prod github:yu994419160\/dsh-purge1\.7\.3-/);
+  assert.match(out, /github:dingminhua\/dsh-connect-workbuddy/);
 });
 
 test("install.mjs --no-companions 仍然完全不碰搭档", () => {
@@ -556,7 +581,7 @@ test("install.mjs --no-companions 仍然完全不碰搭档", () => {
   });
   const out = `${res.stdout}${res.stderr}`;
   assert.equal(res.status, 0, out);
-  assert.match(out, /不碰（本插件不依赖连接器/);
+  assert.match(out, /不碰（--no-companions）/);
   assert.doesNotMatch(out, /pnpm add/, "不该出现任何下载命令");
 });
 
@@ -574,7 +599,7 @@ test("install.mjs 全装好时，--with-companions 也不发起下载", () => {
 
 test("install.mjs 对毒清单搭档给出告警", () => {
   const { home, profileDir } = makeHome();
-  poisonManifest(profileDir, "dsh-purge-community");
+  poisonManifest(profileDir, "dsh-purge");
   const res = spawnSync(process.execPath, [INSTALL, "--dry-run", "--with-companions", "--dsh-home", home], {
     encoding: "utf8",
   });
