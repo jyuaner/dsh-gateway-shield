@@ -21,16 +21,18 @@
  * 登记成功之后**才能摘，否则会出现「文件在、注册没了」的孤儿状态。
  *
  * 用法：
- *   node install.mjs                        放文件 + 登记 + 补齐缺的搭档
- *   node install.mjs --no-companions        只装本插件
+ *   node install.mjs                        放文件 + 登记（不碰搭档）
+ *   node install.mjs --with-companions      顺带补齐缺的搭档（dsh-purge / 两个连接器）
+ *   node install.mjs --no-companions        兼容写法，等同于默认行为
  *   node install.mjs --only dsh-qoder-connect   只处理指定搭档（可逗号分隔）
  *   node install.mjs --skip dsh-purge-community
  *   node install.mjs --verify               体检：清单 / 文件 / 声明 / 登记 / 搭档
  *   node install.mjs --clean                清掉早期版本的手写注册块
  *   node install.mjs --dry-run              只打印计划，不动盘
  *
- * `--with-companions` / `--all` 仍然接受：它们现在只是「显式要求」的同义词，
- * 区别是失败时会以非零码退出（默认模式只告警，因为插件本身已经装好了）。
+ * 从 0.6.0 起**搭档是可选的**：本插件挂在 `llm/stream` 上，对所有 provider 生效，
+ * 不需要连接器提供模型、也不需要 dsh-purge 提供行为层。所以默认只装本体。
+ * 要顺带补搭档，显式加 `--with-companions`。
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -73,17 +75,21 @@ const VERIFY = has("verify");
 const CLEAN = has("clean");
 /** 搭档默认一起处理 —— 这才是「装这个就一条命令」的意思。 */
 const NO_COMPANIONS = has("no-companions") || has("without-companions");
-/** 显式点名要求搭档时，搭档失败算失败；默认模式只告警（插件本身已经装好了）。 */
+/** 显式点名要求搭档时，搭档失败算失败。 */
 const EXPLICIT_COMPANIONS = has("with-companions") || has("all") || list("only").length > 0;
-const WITH_COMPANIONS = !NO_COMPANIONS;
+/**
+ * 0.6.0 起默认**不补**搭档：本插件对所有 provider 生效，连接器和 dsh-purge 都是可选的。
+ * 只有显式要求时才碰它们 —— 那一步会 `pnpm add` 并重写 lock，不该在用户没要求时发生。
+ */
+const WITH_COMPANIONS = EXPLICIT_COMPANIONS && !NO_COMPANIONS;
 
 const ID = "dsh-gateway-shield";
 
 const DSH_HOME = opt("dsh-home", process.env.DSH_HOME?.trim() || path.join(HOME, ".dsh"));
 const BACKUP_DIR = path.join(DSH_HOME, "dsh-purge", "gateway-shield-backups");
 
-/** 要复制的文件。cordis.patch.yml 是注册凭据，必须带上。 */
-const SHIP = ["lib", "scripts", "cordis.patch.yml", "package.json", "README.md", "CHANGELOG.md", "LICENSE", "install.mjs"];
+/** 要复制的文件。cordis.patch.yml 是注册凭据，armor/ 是整合入口，都必须带上。 */
+const SHIP = ["lib", "armor", "scripts", "cordis.patch.yml", "package.json", "README.md", "CHANGELOG.md", "LICENSE", "install.mjs", "bootstrap.mjs"];
 
 const log = (m = "") => console.log(m);
 
@@ -205,7 +211,7 @@ function verify() {
   log("");
 
   // 1) 文件完整
-  for (const f of ["package.json", "lib/index.js", "lib/sanitize.js", "lib/refusal.js", "lib/companions.js", "lib/profile.js", "lib/manifest.js", "cordis.patch.yml"]) {
+  for (const f of ["package.json", "lib/index.js", "lib/sanitize.js", "lib/fingerprints.js", "lib/refusal.js", "lib/companions.js", "lib/profile.js", "lib/manifest.js", "armor/armor.mjs", "armor/detect.mjs", "cordis.patch.yml"]) {
     const ok = fs.existsSync(path.join(TARGET, f));
     log(`${ok ? "✓" : "✗"} ${f}`);
     if (!ok) bad += 1;
@@ -297,7 +303,7 @@ function install() {
   log(`  profile ${profile.name}`);
   log(`  目标    ${TARGET}`);
   log(`  声明    dsh.bundle.patch = ${decl.rel}`);
-  log(`  搭档    ${NO_COMPANIONS ? "跳过（--no-companions）" : "一并处理：先检测，只下载缺的"}`);
+  log(`  搭档    ${WITH_COMPANIONS ? "一并处理：先检测，只下载缺的" : "不碰（本插件不依赖连接器；要补加 --with-companions）"}`);
   log("");
 
   // ---- 装前预检：这份清单会不会让 DSH 起不来 ----

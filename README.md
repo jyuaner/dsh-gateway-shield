@@ -1,4 +1,4 @@
-<div align="center">
+﻿<div align="center">
 
 # dsh-gateway-shield
 
@@ -6,21 +6,30 @@
 [![License](https://img.shields.io/badge/license-MIT-3DA639?style=flat-square)](LICENSE)
 [![DSH](https://img.shields.io/badge/dsh-0.2.1--rc.1%2B-4D6BFE?style=flat-square)](package.json)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A520-339933?style=flat-square&logo=node.js&logoColor=white)](package.json)
-[![Tests](https://img.shields.io/badge/tests-81%20passing-brightgreen?style=flat-square)](scripts/companions-test.mjs)
-[![Plugins](https://img.shields.io/badge/plugins-workbuddy%20%C2%B7%20qoder-8957E5?style=flat-square)](#和-dsh-purge两个连接器一起用)
+[![Tests](https://img.shields.io/badge/tests-158%20passing-brightgreen?style=flat-square)](#验证)
+[![Providers](https://img.shields.io/badge/providers-any-8957E5?style=flat-square)](#支持哪些模型不是白名单是档位)
 
-**给 DSH 里的 WorkBuddy / Qoder 模型破甲。**
+</div>
 
-装 `dsh-purge` 只破得了 DSH 自己那套提示词，管不到从 WorkBuddy、Qoder 接进来的模型——
-它们有自己的网关、自己的拒答习惯。这个插件补的就是这一层。
+**DSH 出网前的最后一道护栏。**
 
-15 条网关指纹同义改写 · 软拒绝带加固重试 · provider 无关 · 与 dsh-purge 叠加使用 · 一条命令装齐三件套
+请求在出网那一刻被网关按指纹拦掉、或者模型一开口就推脱 —— 这两件事都发生在 DSH 自己的
+提示词组装之后、provider 适配器里面。这个插件就挂在那儿：`llm/stream`，provider 无关，
+装一次对**所有**模型生效。
 
-当前版本 **0.3.0** · 适配 **DSH 0.2.1-rc.1+** · 无需其他插件即可运行
+通用身份句同义改写 · 软拒绝带加固重试 · 洗 system / messages / tools / toolHistory 四个面 · 零依赖 · 零网络
 
-配合 [dsh-connect-workbuddy](https://github.com/dingminhua/dsh-connect-workbuddy) / [dsh-qoder-connect](https://github.com/masknull/dsh-qoder-connect) 使用（由它们提供 WorkBuddy / Qoder 模型）· 与 [dsh-purge Community](https://github.com/kingcharleslzy-ai/dsh-purge) 叠加更完整（可选）
+当前版本 **0.6.0** · 适配 **DSH 0.2.1-rc.1+** · **独立运行，不需要任何搭档**
 
-[English](docs/README.en.md) · [日本語](docs/README.ja.md)
+不依赖 [dsh-purge](https://github.com/kingcharleslzy-ai/dsh-purge)，也不依赖任何连接器。
+行为层的破甲（让模型愿意做）和传输层的护栏（让请求到得了、别在网关被拦）本来就是两件事，
+本插件只管后者 —— 但后者单独就有用。恰好用 WorkBuddy / Qoder 的，
+另有 [dsh-connect-workbuddy](https://github.com/dingminhua/dsh-connect-workbuddy) /
+[dsh-qoder-connect](https://github.com/masknull/dsh-qoder-connect) 提供模型。
+
+<div align="center">
+
+[English](docs/README.en.md) · [日本語](docs/README.ja.md) · 英/日 文档停在 0.3.x，以中文为准
 
 </div>
 
@@ -29,12 +38,14 @@
 ## 一句话说清
 
 ```
-dsh-purge          让 DSH 里的 Agent 不推脱        ← 你大概已经装了
-dsh-gateway-shield 让 WorkBuddy / Qoder 的模型      ← 就是这个
-                   也照做，别在网关层被拦、别软拒绝
+dsh-purge          让模型愿意做                    ← 行为层，可选
+dsh-gateway-shield 让请求到得了、别在网关层被拦    ← 传输层，就是这个
+                   也别一开口就推脱
 ```
 
-**为什么需要单独一层**：WorkBuddy 和 Qoder 是被接进 DSH 的外部模型。它们的网关会扫提示词内容，命中自家黑名单就返 `400`，而 `dsh-purge` 改的是 DSH 内部的提示词组装，碰不到这一层。所以会出现「破甲明明装了，一换模型还是不行」。
+**为什么传输层要单独一个插件**：`llm/stream` 是 DSH 里唯一「在 provider 适配器之后、真正出网之前」
+的钩子，而且它 provider 无关。破甲改的是提示词组装（`systemPrompt` / `tools`），碰不到这一层 ——
+所以会出现「破甲明明装了，一换个网关模型还是被 400 挡回来」。
 
 ---
 
@@ -147,22 +158,29 @@ node armor/armor.mjs --all-profiles --force   # web 与 desktop 都刷新一遍
 
 ---
 
-## 一键装齐三件套
+## 可选搭档：不装也能跑
 
-「装这个」和「装那三个」本来就该是同一件事：本插件只有配上连接器（提供模型）和
-`dsh-purge`（提供另一半破甲）才谈得上生效。所以**装本体就是装全套**，没有额外开关。
+本插件是零依赖的纯宿主包，`node install.mjs` **只装它自己**。原因是挂载点决定的：
+`llm/stream` 对所有 provider 生效，既不需要连接器提供模型，也不需要 `dsh-purge` 提供行为层。
 
 ```bash
-# 已克隆仓库
+# 只装本体（默认）
 node install.mjs
 
-# 或者一行命令，不依赖 git
+# 顺带把缺的搭档也补上
+node install.mjs --with-companions
+
+# 或者一行命令装本体，不依赖 git
 node --input-type=module -e "const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
 ```
 
-搭档是**先检测再下载**的：已经在 `node_modules` 里、清单健康的直接跳过，不发任何请求；
-只缺的那几个才会合成一条 `pnpm add` / `npm install`。所以这条命令跑第二遍是秒过，
-`--dry-run` 里会明写「已装 3 个 → 跳过；缺 0 个 → 无需下载」。
+**为什么默认不补搭档**：补搭档那一步会 `pnpm add` 并重写 `pnpm-lock.yaml`。如果机器上的破甲是
+`github:` 来源、而且已经打过宿主补丁，重新解析一次就可能落到另一个 commit —— 等于悄悄换掉一个
+破甲版本。这种事该由人显式要求，不该是默认。
+
+`--with-companions` 时是**先检测再下载**：已经在 `node_modules` 里、清单健康的直接跳过，不发任何
+请求；只缺的那几个才合成一条 `pnpm add` / `npm install`。所以跑第二遍是秒过，`--dry-run` 里会明写
+「已装 3 个 → 跳过；缺 0 个 → 无需下载」。
 
 它按这个顺序做事：
 
@@ -172,17 +190,16 @@ node --input-type=module -e "const s=await(await fetch('https://raw.githubuserco
 | 1 | 把本包放进 `<profile>/node_modules/dsh-gateway-shield` | 文件到位 |
 | 2 | 把包名**追加进 `dsh.profile.bundles`** | DSH 只从这里读组合包；只放文件不登记，启动时一行都不跑 |
 | 3 | 确认登记成功之后，才摘掉早期手写注册块 | 顺序反过来会摘出一个谁都不加载的孤儿目录 |
-| 4 | 检测搭档：已装的跳过，缺的合成一条 `pnpm add` | 它们各自带依赖，直接复制文件会得到一个 import 就炸的目录；已装的没必要重下 |
-| 5 | 把就位的搭档逐个登记进 `dsh.profile.bundles`（清单有毒的拒登） | 同第 2 步；宁可插件不生效，也不让 DSH 死 |
-| 6 | 打印还差什么（例如需要在本机登录 WorkBuddy / Qoder） | 登录态拿不到，模型不会出现在列表里 |
+| 4 | （仅 `--with-companions`）检测搭档：已装的跳过，缺的合成一条 `pnpm add` | 它们各自带依赖，直接复制文件会得到一个 import 就炸的目录 |
+| 5 | （同上）把就位的搭档登记进 `dsh.profile.bundles`（清单有毒的拒登） | 同第 2 步；宁可插件不生效，也不让 DSH 死 |
 
 可控参数：
 
 | 参数 | 作用 |
 | --- | --- |
-| `--no-companions` | 只要本插件，不碰搭档（别名 `--without-companions`） |
-| `--with-companions`（别名 `--all`） | 兼容老写法；现在只是「显式要求」，失败时以非零码退出 |
-| `--only a,b` | 只处理其中几个搭档 |
+| `--with-companions`（别名 `--all`） | 顺带补齐缺的搭档；搭档失败时以非零码退出 |
+| `--no-companions` | 兼容写法，等同于默认行为（别名 `--without-companions`） |
+| `--only a,b` | 只处理其中几个搭档（隐含 `--with-companions`） |
 | `--skip a,b` | 跳过其中几个 |
 | `--pm pnpm\|npm` | 指定包管理器（默认按 profile 的 lockfile 判断） |
 | `--dry-run` | 只打印计划，不动盘 |
@@ -190,7 +207,7 @@ node --input-type=module -e "const s=await(await fetch('https://raw.githubuserco
 | `--profile web` | 指定 profile |
 | `--dsh-home PATH` | 指定 DSH 数据目录（默认 `~/.dsh`） |
 
-搭档清单（顺序即追加进 `dsh.profile.bundles` 的顺序）：
+搭档清单（全部可选，顺序即追加进 `dsh.profile.bundles` 的顺序）：
 
 | id | 层 | 作用 | Node |
 | --- | --- | --- | --- |
@@ -200,13 +217,14 @@ node --input-type=module -e "const s=await(await fetch('https://raw.githubuserco
 
 装依赖前会先把 profile 的 `package.json` 和 lockfile 备份到
 `~/.dsh/dsh-purge/gateway-shield-backups/`；装失败按提示把备份盖回去即可回到装之前。
-装完重启 DSH，设置 → 插件 里应该一次看到四个条目。
 
 ---
 
 ## 具体卡在哪三处
 
-你已经在 DSH 里破了甲，一切看起来都对，但一换成 WorkBuddy 或 Qoder 的模型，任务还是会被打断。**原因不在破甲规则**，而在三个和规则无关的地方。
+这个插件是从一个具体故障里长出来的：破甲装好了、一切看起来都对，但一换成网关型模型（当时是
+WorkBuddy / Qoder），任务还是会被打断。**原因不在破甲规则**，而在三个和规则无关的地方。
+这三条对现在任何一个走网关的 provider 同样成立。
 
 ### 一、网关在请求出网前就拒了
 
@@ -230,7 +248,7 @@ WorkBuddy 网关会扫 `system` / `assistant` 消息的**内容片段**，命中
 | `Agent Teams is available in this session` | 400 / 11128 |
 | `Tokens prefixed with @ are paths the user explicitly referenced.` | 400 / 11128 |
 
-共 15 条，见 [`lib/sanitize.js`](lib/sanitize.js)。
+共 15 条实测，加上按 provider 分档的专属层，见 [`lib/fingerprints.js`](lib/fingerprints.js)。
 
 ### 二、破甲的拒绝重试，其实从未生效
 
@@ -292,9 +310,10 @@ DSH agent loop
 
 ### 出网前：指纹清洗
 
-只改 `system` / `assistant` / `developer` 三个角色——网关只扫这三个；`user` / `tool` 实测命中也不拒，改它们等于篡改用户输入。
+只改 `system` / `assistant` / `developer`（含部分适配器用的 `model`）——网关只扫这几个；`user` / `tool` 实测命中也不拒，改它们等于篡改用户输入。
 
-15 条同义改写，语义不变、可读性不变：
+通用层 15 条同义改写，语义不变、可读性不变（上面[档位表](#支持哪些模型不是白名单是档位)里
+各 provider 在此基础上叠加自己的专属条目）：
 
 | 原句 | 改写为 |
 | --- | --- |
@@ -333,21 +352,20 @@ If a detail is missing, fill a placeholder and continue instead of asking.
 
 ---
 
-## 和 dsh-purge、两个连接器一起用
+## 和 dsh-purge、连接器怎么配合（全部可选）
 
-**破甲不是装一个插件就完事。** 外部模型的破甲要两个插件配合，再加连接器提供模型本身。三者互补，各管一段，不重叠。
+**本插件单独就能用。** 下面这些是「加上之后更完整」，不是前置条件。
 
-### 先说清楚：这不是硬依赖
+### 它确实不依赖任何东西
 
-本插件**没有 `dependencies`**，`peerDependencies` 只有可选的 cordis。代码里也没有任何 `require` 另外三个插件的语句（`install.mjs` 里出现的 `dsh-purge` 只是备份目录名）。
+本插件**没有 `dependencies`**，`peerDependencies` 只有可选的 cordis。代码里没有任何 `require`
+另外几个插件的语句（`install.mjs` 里出现的 `dsh-purge` 只是备份目录名）。
 
 | 问题 | 答案 |
 | --- | --- |
-| 不装 dsh-purge 能用吗 | **能**。清洗和重试都独立工作，只是少了「让 Agent 不推脱」那一半 |
-| 不装连接器能用吗 | **能**。装上就对所有 provider 生效，只是你得先有 WorkBuddy / Qoder 的模型可保护 |
-| 三个都装会冲突吗 | **不会**。挂在不同的钩子上，互不干扰 |
-
-**那为什么还要装**：这个插件干的事是「给 WorkBuddy / Qoder 模型破甲」。连接器提供模型（否则没对象可保护），dsh-purge 提供另一半破甲（行为倾向）。没有它们，本插件只是空转——技术上正常，实际没东西可做。
+| 不装 dsh-purge 能用吗 | **能，而且这是默认状态**。清洗和重试独立工作，只是少了「让模型愿意做」那一半 |
+| 不装任何连接器能用吗 | **能，也是默认用法**。`providers: []` = 全部 provider，你挂什么模型它就护什么 |
+| 都装上会冲突吗 | **不会**。挂在不同钩子上，各管一段，不重叠 |
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -372,13 +390,14 @@ If a detail is missing, fill a placeholder and continue instead of asking.
 └─────────────────────────────────────────────────────────┘
 ```
 
-### 为什么三个都要装
+### 为什么全装上会更好
 
-**只装连接器**：请求能出去，但会撞 11128 指纹，或者被模型软拒绝后无救。
+**只装本插件**：DSH 自己的身份句不再撞网关黑名单，模型软拒绝也能被拉回来一次。这已经能解决问题。
 
-**再装破甲**：模型行为对了，但拒绝重试是空转（见上文第二节），11128 依然拦在出网前。
+**再加破甲**：模型行为更配合（少反复确认「要不要做」「是否授权」）。注意破甲那份
+`refusalRetry` 是空转的（见上文第二节），重试仍然该交给本插件。
 
-**三个都装**：破甲让模型配合，护栏让请求干净地到达模型并能在推脱时拉回来，连接器提供模型本身。
+**再加连接器**：你多了 WorkBuddy / Qoder 的模型可选 —— 那是「多几个模型」，不是「本插件才开始工作」。
 
 ### 分工对照
 
@@ -399,7 +418,7 @@ If a detail is missing, fill a placeholder and continue instead of asking.
 
 ### 配置上的注意
 
-- **本插件的 `providers: []` 表示全部 provider**，所以 WorkBuddy 和 Qoder 同时被保护。只想保护一家时写 `["workbuddy"]` 或 `["qoder"]`。
+- **`providers: []` 表示全部 provider（默认值，也是推荐值）**：你挂什么模型它就护什么，包括以后新加的 route。要限定范围才写 `["workbuddy"]` 这种。
 - **挂载要两样东西**：包在 `<profile>/node_modules/` 里，包名在 `<profile>/package.json` 的 `dsh.profile.bundles` 里。`dsh.bundle` 声明只是「这个包有资格当 bundle」；`dsh.profile.bundles` 才是「这次启动要加载它」。设置 → 插件 面板会自动维护后者，命令行安装由 `install.mjs` 代劳。
 - **顺序无关**。都挂在 `llm/stream` 上时，本插件用 Symbol 标记防重入，不会因先后顺序重复处理。
 - **破甲的 `refusalRetry` 默认是关闭的**（`TUNING_DEFAULTS.refusalRetry = false`），所以默认不存在冲突。如果你手动打开过它（`~/.dsh/dsh-purge/tuning.json` 里写 `"refusalRetry": true`），它会和本插件重复做同一件事——而且如上文所述，它那份加固段会丢、属于空转。**建议保持关闭**，把重试交给本插件。
@@ -434,14 +453,14 @@ $env:NODE_USE_ENV_PROXY="1"; $env:HTTPS_PROXY="http://127.0.0.1:7897"   # 再重
 **想让裸包名也能搜到**：得把包发布到 npm —— 那个框按名字查的是 registry。
 步骤、核对表与三条禁忌都在 [docs/PUBLISHING.md](docs/PUBLISHING.md)。
 
-### 方式零：一条命令装齐（推荐）
+### 方式零：一条命令装本体（推荐）
 
 ```bash
 node install.mjs
 ```
 
 本包 + dsh-purge + 两个连接器（已装的自动跳过），装完还顺手登记进 `dsh.profile.bundles`。
-细节见上面的 [一键装齐三件套](#一键装齐三件套)。
+细节见上面的 [可选搭档](#可选搭档不装也能跑)。
 
 ### 方式一：作为依赖装
 
@@ -469,7 +488,8 @@ pnpm add github:jyuaner/dsh-gateway-shield
 ```bash
 git clone https://github.com/jyuaner/dsh-gateway-shield.git
 cd dsh-gateway-shield
-node install.mjs                  # 本体 + 搭档（已装的跳过）
+node install.mjs                  # 本体（默认不碰搭档）
+node install.mjs --with-companions  # 顺便补齐缺的搭档
 node install.mjs --no-companions  # 只要本体
 ```
 
@@ -573,9 +593,9 @@ $env:HTTPS_PROXY="http://127.0.0.1:7897"
 | + dsh-connect-workbuddy | **≥ 22.19** |
 | + dsh-qoder-connect | **≥ 22.19** |
 
-两个连接器都声明 `engines.node: "^22.19.0 || >=24.0.0"`。所以**同时用 WorkBuddy / Qoder 时，Node 至少要 22.19**。
+两个连接器都声明 `engines.node: "^22.19.0 || >=24.0.0"`。所以只有**真的在用 WorkBuddy / Qoder 时**才需要 Node ≥ 22.19；只装本插件 20 就够（本机实测 24.19.0）。
 
-已验证的 DSH 版本：`0.2.2-rc.1`（本机实测）。
+已验证的 DSH 版本：`0.2.2-rc.5`（本机实测）。
 
 ---
 
@@ -672,24 +692,26 @@ node install.mjs --verify    # 应看到「不影响启动（无 dsh.client 声�
 ## 验证
 
 ```bash
-npm test                # 47 项自测 + 13 项端到端 + 38 项安装器
-npm run test:companions # 只跑搭档安装器那 38 项（零网络、零依赖）
-npm run probe           # 证明 next(opts) 参数被丢弃、this.stream() 重入可行
-npm run verify          # 体检
+npm test                 # 全跑：47 自测 + 13 端到端 + 39 安装器 + 21 全模型覆盖 + 38 armor
+npm run test:companions  # 只跑搭档安装器那 39 项（零网络、零依赖、临时 fixture profile）
+npm run test:providers   # 只跑全模型覆盖 21 项（认档 / 四个洗面 / 边界）
+npm run test:armor       # 只跑 armor 检测与一键安装 38 项
+npm run probe            # 证明 next(opts) 参数被丢弃、this.stream() 重入可行
+npm run verify           # 体检
 ```
 
-当前状态：**47 / 47、13 / 13、38 / 38，合计 98 项全通过**。
+当前状态：**47 / 47、13 / 13、39 / 39、21 / 21、38 / 38，合计 158 项全通过**。
 
 端到端测试用的是真实 cordis waterfall 语义（`next()` 无参 + `options` 被 `deepFreeze`），不是模拟。
-安装器测试用的是临时 fixture profile：不联网、不调真实包管理器，连「`--dry-run` 一个字节都不写」
-都是断言。
+安装器与 armor 测试用的是临时 fixture profile：不联网、不调真实包管理器、不碰真实 `~/.dsh`，
+连「`--dry-run` 一个字节都不写」都是断言比较出来的。
 
 ---
 
 ## 已知边界
 
 - **`11140` 内容策略拒绝救不了**。那是上游对请求内容本身的判断，不是指纹匹配。本插件只能保证请求干净地到达模型，不能保证网关不拒。
-- **清洗表是快照，不是契约**。15 条都是实测过的。网关随时可能加新指纹，那是对方的代码，看不到。命中不了的新指纹只能等反馈后补表。想覆盖更多变体可开 `paranoid`，但那属于猜。
+- **清洗表是快照，不是契约**。通用层 15 条来自 WorkBuddy 网关实测；`trae` 是同族推断、`anthropic` 是推断 + 两条公开身份句、其余 provider 只吃通用层 —— 每档的 `confidence` 都写在 `lib/fingerprints.js` 里。网关随时可能加新指纹，那是对方的代码，看不到。想覆盖更多变体可开 `paranoid`，但那属于猜。
 - **不碰 `user` / `tool` 消息**。改了等于篡改用户输入，且实测那两个角色命中也不拒。
 - **`zeroWidth` 默认关**。CN 网关会归一化掉零宽字符（2026-10-29 实测），开了对 CN 无效，只对 global 路由有用。
 - **依赖 cordis 的 `waterfall` 语义**。如果 DSH 将来改成 `next(opts)` 真的生效，本插件的重入路径仍然正确（只是多绕一层）。
@@ -728,22 +750,28 @@ dsh-gateway-shield/
 ├── cordis.patch.yml      bundle 注册内容
 ├── lib/
 │   ├── index.js          llm/stream 钩子，this.stream() 重入
-│   ├── sanitize.js       15 条网关指纹同义改写
+│   ├── fingerprints.js   分档指纹表：通用层 + provider 专属层 + confidence
+│   ├── sanitize.js       四个洗面：system / messages / tools / toolHistory
 │   ├── refusal.js        拒绝检测 + 加固段（覆盖三种 options 形状）
-│   ├── companions.js     搭档三件套：注册表 / 检测 / 安装计划 / 执行器
+│   ├── companions.js     可选搭档：注册表 / 检测 / 安装计划 / 执行器
 │   ├── manifest.js       清单启动安全体检（dsh.client / dsh.bundle 的真实契约）
 │   └── profile.js        dsh.profile.bundles 登记、清单备份、手写块摘除
+├── armor/
+│   ├── detect.mjs        只读体检：破甲按角色识别、网关覆盖矩阵、冲突判定
+│   ├── armor.mjs         一键：预检 → 落文件 → 登记 → 复检（不碰包管理器）
+│   └── armor-test.mjs    38 项（临时 fixture DSH_HOME，不碰真实 ~/.dsh）
 ├── scripts/
 │   ├── selftest.mjs      47 项自测
 │   ├── e2e.mjs           13 项端到端
-│   ├── companions-test.mjs   38 项安装器测试（离线、fixture profile）
-│   ├── probe-waterfall.mjs   证明 next(opts) 参数被丢弃
-│   └── probe-reentry.mjs     证明 this.stream() 重入可行且不递归
-├── install.mjs           安装 / 登记 / 体检 / 清理；默认补齐缺的搭档
+│   ├── companions-test.mjs        38 项安装器测试（离线、fixture profile）
+│   ├── provider-coverage-test.mjs 21 项全模型覆盖（认档 / 洗面 / 边界）
+│   ├── probe-waterfall.mjs        证明 next(opts) 参数被丢弃
+│   └── probe-reentry.mjs          证明 this.stream() 重入可行且不递归
+├── install.mjs           安装 / 登记 / 体检 / 清理；默认只装本体
 ├── bootstrap.mjs         一行命令安装器（下载 tarball，不依赖 git）
 ├── docs/
-│   ├── README.en.md      英文说明
-│   ├── README.ja.md      日文说明
+│   ├── README.en.md      英文说明（停在 0.3.x）
+│   ├── README.ja.md      日文说明（停在 0.3.x）
 │   └── PUBLISHING.md     发布到 npm 的步骤与核对表
 ├── CHANGELOG.md          更新记录
 └── LICENSE               MIT

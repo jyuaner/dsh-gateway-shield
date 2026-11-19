@@ -11,7 +11,7 @@
  *   - 登记：追加进 dsh.profile.bundles，保持既有顺序，拒绝没有 dsh.bundle 的包
  *   - 登记：拒绝会让 DSH 起不来的清单（0.3.0 事故的闸门）
  *   - 手写块摘除：有缩进、有相邻条目也不误伤
- *   - 端到端：默认就处理搭档；`--no-companions` 完全不碰；`--dry-run` 一个字节都不写
+ *   - 端到端：默认不碰搭档；`--with-companions` 才补；`--dry-run` 一个字节都不写
  */
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -528,9 +528,20 @@ test("install.mjs --dry-run：一个字节都不写", () => {
   assert.equal(fs.existsSync(path.join(profileDir, "node_modules", "dsh-gateway-shield")), false, "文件被复制了");
 });
 
-test("install.mjs 默认就处理搭档（一条命令）", () => {
+test("install.mjs 默认不碰搭档（全模型，不依赖连接器）", () => {
   const { home } = makeHome();
   const res = spawnSync(process.execPath, [INSTALL, "--dry-run", "--dsh-home", home], { encoding: "utf8" });
+  const out = `${res.stdout}${res.stderr}`;
+  assert.equal(res.status, 0, out);
+  assert.match(out, /不碰（本插件不依赖连接器；要补加 --with-companions）/);
+  assert.doesNotMatch(out, /pnpm add/, "默认不该出现任何下载命令");
+});
+
+test("install.mjs --with-companions 才补齐缺的搭档", () => {
+  const { home } = makeHome();
+  const res = spawnSync(process.execPath, [INSTALL, "--dry-run", "--with-companions", "--dsh-home", home], {
+    encoding: "utf8",
+  });
   const out = `${res.stdout}${res.stderr}`;
   assert.equal(res.status, 0, out);
   assert.match(out, /先检测，只下载缺的/);
@@ -538,20 +549,22 @@ test("install.mjs 默认就处理搭档（一条命令）", () => {
   assert.match(out, /pnpm add --save-prod github:kingcharleslzy-ai\/dsh-purge/);
 });
 
-test("install.mjs --no-companions 完全不碰搭档", () => {
+test("install.mjs --no-companions 仍然完全不碰搭档", () => {
   const { home } = makeHome();
-  const res = spawnSync(process.execPath, [INSTALL, "--dry-run", "--no-companions", "--dsh-home", home], {
+  const res = spawnSync(process.execPath, [INSTALL, "--dry-run", "--no-companions", "--with-companions", "--dsh-home", home], {
     encoding: "utf8",
   });
   const out = `${res.stdout}${res.stderr}`;
   assert.equal(res.status, 0, out);
-  assert.match(out, /跳过（--no-companions）/);
+  assert.match(out, /不碰（本插件不依赖连接器/);
   assert.doesNotMatch(out, /pnpm add/, "不该出现任何下载命令");
 });
 
-test("install.mjs 全装好时不发起下载", () => {
+test("install.mjs 全装好时，--with-companions 也不发起下载", () => {
   const { home } = makeHome({ installed: COMPANION_IDS });
-  const res = spawnSync(process.execPath, [INSTALL, "--dry-run", "--dsh-home", home], { encoding: "utf8" });
+  const res = spawnSync(process.execPath, [INSTALL, "--dry-run", "--with-companions", "--dsh-home", home], {
+    encoding: "utf8",
+  });
   const out = `${res.stdout}${res.stderr}`;
   assert.equal(res.status, 0, out);
   assert.match(out, /已装 3 个 → 跳过；缺 0 个/);
@@ -562,7 +575,9 @@ test("install.mjs 全装好时不发起下载", () => {
 test("install.mjs 对毒清单搭档给出告警", () => {
   const { home, profileDir } = makeHome();
   poisonManifest(profileDir, "dsh-purge-community");
-  const res = spawnSync(process.execPath, [INSTALL, "--dry-run", "--dsh-home", home], { encoding: "utf8" });
+  const res = spawnSync(process.execPath, [INSTALL, "--dry-run", "--with-companions", "--dsh-home", home], {
+    encoding: "utf8",
+  });
   const out = `${res.stdout}${res.stderr}`;
   assert.match(out, /会让 DSH 起不来/);
   assert.match(out, /已装 0 个 → 跳过；缺 3 个/);

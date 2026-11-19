@@ -1,7 +1,7 @@
 {
   "name": "dsh-gateway-shield",
-  "version": "0.5.0",
-  "description": "DSH 出网前的提示词栅栏：网关指纹清洗 + 软拒绝重试，一个插件同时覆盖 WorkBuddy 与 Qoder 模型路由；安装时先检测搭档是否已装，只补缺的那几个。",
+  "version": "0.6.0",
+  "description": "DSH 出网前的提示词栅栏：按 provider 分档的指纹同义改写（system / messages / tools / toolHistory 四个面）+ 软拒绝带加固重试。provider 无关，装一次对全模型生效，不依赖任何连接器或破甲插件。",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -47,10 +47,14 @@
     "dsh",
     "deepseek-harness",
     "dsh-plugin",
+    "provider-agnostic",
+    "any-provider",
+    "gateway",
+    "fingerprint",
+    "prompt",
     "workbuddy",
     "qoder",
-    "prompt",
-    "gateway",
+    "trae",
     "llm",
     "cordis"
   ],

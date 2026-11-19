@@ -3,6 +3,38 @@
 本文件记录所有值得写下来的改动。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.6.0] - 2026-11-19
+
+**定位收口：这不再是一个「WorkBuddy / Qoder 补丁」，而是 DSH 出网前的通用护栏。**
+
+0.5.0 让代码对所有 provider 生效，但文档、仓库简介、安装器的默认行为还停在「必须搭配
+连接器 + dsh-purge」。这一版把这三处一起改掉，让写下来的东西和实际行为对上。
+
+### 改
+
+- **`install.mjs` 默认只装本体**。原来是「装本体 = 装全套」，默认会去 `pnpm add` 那三个搭档；
+  现在只有显式加 `--with-companions`（或 `--all` / `--only`）才碰它们。理由是那一步会重写
+  `pnpm-lock.yaml`，对已打过宿主补丁的 `github:` 破甲有实打实的干扰风险——这种事不该是默认。
+  `--no-companions` 保留为兼容写法，语义等同于默认。
+- README 头部、`一句话说清`、`和 dsh-purge、连接器怎么配合` 三节重写：把「必须三个都装」
+  改成「本插件单独就能用，另外两个是可选的加成」。「一键装齐三件套」改名为「可选搭档：不装也能跑」。
+- `package.json` 的 `description` 与 `keywords` 改为 provider 无关的口径。
+- 「兼容性」一节澄清 Node 下限：只有真在用 WorkBuddy / Qoder 时才要 ≥ 22.19，只装本插件 20 即可。
+- 「已知边界」里的指纹表述改为分档口径（通用层实测、其余标推断），与 `lib/fingerprints.js` 一致。
+- 英 / 日文档标注为停在 0.3.x，以中文为准（避免两份过期翻译继续误导）。
+
+### 测试
+
+- `scripts/companions-test.mjs` 跟着改默认值：新增「默认不碰搭档」「`--with-companions` 才补」
+  「`--no-companions` 压过 `--with-companions`」三项，毒清单告警那项改成显式带 `--with-companions`。
+  现在 39 项。
+
+### 顺带修
+
+- `install.mjs` 的 `SHIP` 列表补上 `armor/` 与 `bootstrap.mjs`：之前走这条路径装出来的目录里
+  没有 `armor/`，`dsh-armor` 这个 bin 是废的。`--verify` 的文件检查也加上了
+  `lib/fingerprints.js`、`armor/armor.mjs`、`armor/detect.mjs`。
+
 ## [0.5.0] - 2026-11-19
 
 破甲从「WorkBuddy / Qoder 两个网关」扩到**全模型**。钩子层本来就不用改（`llm/stream` 与
