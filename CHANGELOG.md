@@ -3,6 +3,72 @@
 本文件记录所有值得写下来的改动。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.0] - 2026-11-19
+
+破甲从「WorkBuddy / Qoder 两个网关」扩到**全模型**。钩子层本来就不用改（`llm/stream` 与
+provider 无关），挡住全模型的是三个数据层的问题，这一版逐个处理。
+
+### 新增
+
+- `lib/fingerprints.js`：指纹表按 provider 分档。
+  - `UNIVERSAL_PHRASES`：原来那 15 条实测表，所有 provider 都洗；
+  - `PROVIDER_PHRASES`：单 provider 专属补充（目前只有 `anthropic` 的两条 Claude Code 身份句）；
+  - `PROVIDER_RULES`：按**前缀**匹配，不穷举 —— `provider` 是开放集合，用户在设置里能自己加 route；
+  - 每档带 `confidence: measured | inferred | universal`，进日志与 `armor --check` 的矩阵。
+- 清洗面从 2 个扩到 4 个：`system`、`messages[].content`（含**字符串 content**）、
+  `tools[].description`、`toolHistory.tools[] / updates[].additions[]`。
+  后两者是 `GenerateOptions` 里真实存在、原来完全没洗的字段。
+- `armor/detect.mjs` 增加网关覆盖矩阵：每个 profile 的每个 provider 档位、条数、实测/推断。
+- `scripts/provider-coverage-test.mjs`：21 项，锁住「认档 / 洗面 / 边界」三件事。
+- 启动日志多一行 `fingerprints | fallback=… surfaces=system,messages,tools,toolHistory`；
+  逐请求日志多 `profile=workbuddy(measured, 15 条) … tools=N`。
+
+### 改
+
+- `rewriteText` / `shieldOptions` 接受 `provider`（`config.provider` 优先，其次 `options.provider`）。
+  不传时行为与 0.4.0 完全一致 —— 旧调用点和测试不受影响。
+- `scansRole` 增加 `model`（部分适配器用它代替 `assistant`）。
+- 兼容导出保留：`CHANNEL_GATE_PHRASES` 仍等于通用层，`PARANOID_PHRASES` 移入 `fingerprints.js` 后重导出。
+
+### 为什么不是「多写几个网关的名字」
+
+按名字扩表只会得到一张永远追不上新网关的名单。分成「通用身份句层 + provider 专属层」之后，
+新 provider 至少落在通用层里（不会静默跳过），而实测过的网关仍然吃它自己那一档，
+两件事互不干扰。
+
+## [0.4.0] - 2026-11-19
+
+新增整合入口 `armor/`：**先体检，再一键装**，且全程不碰包管理器。
+
+### 为什么
+
+上游 `install.mjs` 把搭档写成三行硬编码（`dsh-purge-community` / `dsh-connect-workbuddy` /
+`dsh-qoder-connect`），缺的会 `pnpm add`。这在「破甲已经从 git 装好、宿主补丁已应用」的机器上
+有两个具体问题：
+
+1. 同一个破甲角色可能换名换源。实测一台机器上 `web` 是 `dsh-purge-community`（kingcharleslzy-ai）、
+   `desktop` 是 `dsh-purge`（mmparko）。硬编码 id 在 desktop 里什么都看不到。
+2. `pnpm add` 会重写 `pnpm-lock.yaml` 并重新解析那两个 `github:` 依赖 —— 落到另一个 commit，
+   就是悄悄换掉用户的破甲版本。
+
+### 新增
+
+- `armor/detect.mjs`：只读体检。按**角色**识别破甲（`dsh-purge-community` / `dsh-purge` /
+  任何名字带 `purge` 的依赖），带来源判定（`git` / `registry` / `local`）、登记状态、
+  清单启动安全、重复破甲、`tuning.json` 的 `refusalRetry` 冲突、手写注册块残留、
+  宿主版本区间与 Node 下限。
+- `armor/armor.mjs`：一键入口。顺序固定为「预检 → 落文件 → 复检已落盘的那份 → 登记 →
+  摘手写块 → 全量复检」，`--check` / `--json` / `--dry-run` / `--profile` / `--all-profiles` /
+  `--force` 可选。不调 `pnpm`、不发网络请求。
+- `package.json`：`bin.dsh-armor`，`files` 收录 `armor`，版本 `0.4.0`。
+- `install.mjs` 与上游行为保持不变，作为「要顺手补搭档」时的老路径保留。
+
+### 修
+
+- 复检用的 `needsInstall` 曾经读的是 `inspectPackage()` 的返回值，而 `inBundles` 只加在
+  返回对象的副本上 —— 结果是装完永远显示「需要装」，复检永远不通过。改用局部变量。
+- `--force` 与「已就位跳过」两个列表会同时列出同一个 profile，日志读起来像矛盾。
+
 ## [0.3.2] - 2026-11-19
 
 只有元数据与文档，**功能与 0.3.1 完全相同**。这一版是为了让「面板里填名字就能装」

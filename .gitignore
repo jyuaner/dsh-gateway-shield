@@ -5,3 +5,5 @@ dist/
 Thumbs.db
 cordis.patch.yml.bak-*
 *.bak
+# npm pack 的产物：发布物，不进版本库
+*.tgz

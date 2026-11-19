@@ -1,6 +1,6 @@
 {
   "name": "dsh-gateway-shield",
-  "version": "0.3.2",
+  "version": "0.5.0",
   "description": "DSH 出网前的提示词栅栏：网关指纹清洗 + 软拒绝重试，一个插件同时覆盖 WorkBuddy 与 Qoder 模型路由；安装时先检测搭档是否已装，只补缺的那几个。",
   "type": "module",
   "main": "lib/index.js",
@@ -10,10 +10,12 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "dsh-gateway-shield": "install.mjs"
+    "dsh-gateway-shield": "install.mjs",
+    "dsh-armor": "armor/armor.mjs"
   },
   "files": [
     "lib",
+    "armor",
     "scripts",
     "docs",
     "cordis.patch.yml",
@@ -28,10 +30,14 @@
     "dsh": ">=0.2.1-rc.1"
   },
   "scripts": {
-    "test": "node scripts/selftest.mjs && node scripts/e2e.mjs && node scripts/companions-test.mjs",
+    "test": "node scripts/selftest.mjs && node scripts/e2e.mjs && node scripts/companions-test.mjs && node scripts/provider-coverage-test.mjs && node armor/armor-test.mjs",
     "selftest": "node scripts/selftest.mjs",
     "e2e": "node scripts/e2e.mjs",
     "test:companions": "node scripts/companions-test.mjs",
+    "test:providers": "node scripts/provider-coverage-test.mjs",
+    "test:armor": "node armor/armor-test.mjs",
+    "armor": "node armor/armor.mjs",
+    "armor:check": "node armor/armor.mjs --check",
     "probe": "node scripts/probe-waterfall.mjs && node scripts/probe-reentry.mjs",
     "verify": "node install.mjs --verify",
     "setup": "node install.mjs",

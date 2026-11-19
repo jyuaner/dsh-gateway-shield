@@ -38,6 +38,115 @@ dsh-gateway-shield 让 WorkBuddy / Qoder 的模型      ← 就是这个
 
 ---
 
+## 支持哪些模型：不是白名单，是档位
+
+`llm/stream` 是 provider 无关的 waterfall（`dsh-llm` 的 `ctx.waterfall(this, "llm/stream", …)`），
+所以**本插件对所有 provider 生效**，不需要为每个模型单独写适配。真正决定效果的是
+每个 provider 落到哪一档清洗规则：
+
+| 档 | provider（按前缀匹配） | 条目 | 依据 |
+| --- | --- | --- | --- |
+| `workbuddy` | `workbuddy`、`workbuddy-global` | 15 | 实测（400 / 11128） |
+| `qoder` | `qoder` | 15 | 实测 |
+| `trae` | `trae`、`trae-global`、`trae-enterprise` | 15 | 同族身份句，推断 |
+| `anthropic` | `anthropic*`、`claude*` | 17 | 推断 ＋ Claude Code 身份句 |
+| `openai` | `openai*`、`azure*`、`codex*`、`o1/o3/o4` | 15 | 通用层 |
+| `deepseek` | `deepseek*` | 15 | 通用层 |
+| 其它 | 任何没认出来的名字 | 15 | 通用层 |
+
+**未识别的 provider 走通用层，不会静默跳过。** 这是刻意的取舍：宁可对一个根本不扫指纹的网关
+做一次无收益的改写（成本是一次子串比较），也不要因为名单没更新而放过一个新网关。
+
+`provider` 是开放集合 —— 用户能在设置里自己加 route、名字随便起，所以匹配按前缀而非固定名单。
+
+**「实测」与「推断」是分开标的。** 只有 `workbuddy` / `qoder` 有实测记录，`trae` 判定为同族身份句、
+`anthropic` 是推断 + 两条 Claude Code 的公开身份句。把推断写成实测，比不写更糟。
+
+### 洗四个面，不是两个
+
+网关做的是「位置无关的内容片段匹配」，它不看这段文字长在哪个字段。`GenerateOptions` 里
+有四处可能带身份句，四处都洗：
+
+| 面 | 形状 | 为什么必须洗 |
+| --- | --- | --- |
+| `system` | 字符串 | 系统提示的主要载体 |
+| `messages[].content` | `ContentBlock[]` 或**字符串** | 历史里 `assistant` 复述过的身份句同样会被扫；部分 loopback 适配器真的传字符串 |
+| `tools[].description` | 字符串 | 工具描述里常出现「在 DeepSeek Harness 中……」，网关照样命中 |
+| `toolHistory.tools[]` / `updates[].additions[]` | 同上 | 本会话累计的工具声明，是单独的字段，不随 `tools` 走 |
+
+`user` / `tool` 消息一个字都不动：前者是用户原话，后者是工具输出，改写它们等于篡改输入，
+且实测这两个角色命中也不拒。
+
+### 边界
+
+全模型覆盖解决的是「DSH 自己的身份句被网关当成第三方客户端」这一类问题。它不解决：
+
+- **`11140` 内容策略拒绝** —— 那是上游对请求内容本身的判断，不是指纹匹配；
+- **网关新加的指纹** —— 表是快照不是契约，网关代码看不到，只能等反馈后补；
+- **模型自身的硬拒绝** —— 那由软拒绝重试处理，与清洗无关。
+
+---
+
+## 整合版：先检测，再一键（`armor/`）
+
+0.4.0 起包里多了一个入口 `armor/`。它和 `install.mjs` 做的是同一件事（装本体 + 登记），
+区别就两处：**先体检**，以及**一个 `pnpm` 都不调**。
+
+```bash
+node armor/armor.mjs                          # 一键：体检 → 落文件 → 登记 → 复检
+node armor/armor.mjs --check                  # 只体检（零写入、零联网、零包管理器）
+node armor/armor.mjs --json                   # 机器可读的体检结果
+node armor/armor.mjs --all-profiles --force   # web 与 desktop 都刷新一遍
+```
+
+### 为什么要「不碰包管理器」这一版
+
+`install.mjs` 补搭档时会 `pnpm add github:kingcharleslzy-ai/dsh-purge`。如果机器上那份破甲
+本来就是 git 装的、而且已经打过宿主补丁（`~/.dsh/dsh-purge/applied.json`），这条命令会重写
+`pnpm-lock.yaml` 并把那份 purge 重新解析一次 —— 落到另一个 commit，就是换了一个破甲版本，
+用户的补丁状态和注入文本全变。
+
+本插件是零依赖的纯宿主包（`llm/stream` 钩子 + 一份 yml），复制文件就够用。所以整合版只做
+「复制 → 登记 → 摘手写块」，搭档已就位就一律不动。
+
+### 检测的是「角色」，不是写死的 id
+
+同一个「破甲」角色，在不同 profile 里可能是不同的包：
+
+| profile | 实际在用的破甲 | 来源 |
+| --- | --- | --- |
+| `web` | `dsh-purge-community` v1.6.84 | `github:kingcharleslzy-ai/dsh-purge` |
+| `desktop` | `dsh-purge` v1.1.71 | `github:mmparko/dsh-purge` |
+
+`install.mjs` 的搭档表写死了 `dsh-purge-community`，在 desktop 那个 profile 里它什么都看不到。
+`armor/` 按角色找（`dsh-purge-community` / `dsh-purge` / 任何名字带 `purge` 的依赖），
+并且会主动报出「同一个 profile 装了两个破甲」这类重复注入风险。
+
+### 检测项
+
+| 项 | 判据 | 不通过时 |
+| --- | --- | --- |
+| 宿主版本 | `@deepseek-ai/dsh-base` 的实际版本在 `>=0.2.1-rc.1 <0.3.0` | 告警 |
+| 清单启动安全 | 声明 `dsh.client` 却没有 `exports["./client"]` | 阻断，整轮不写盘 |
+| 本插件 | 文件在 ＋ 已登记 ＋ 清单可启动 | 任缺一项即「需要装」 |
+| 破甲 | 该 profile 至少一个 purge 类包已装 **且** 已登记 | 告警（行为层缺一半） |
+| 重复破甲 | 同一 profile 里 purge 类包 > 1 个 | 告警 |
+| 重试冲突 | `~/.dsh/dsh-purge/tuning.json` 里 `refusalRetry: true` | 告警（它那份走 `next(opts)`，是空转） |
+| 连接器 | WorkBuddy / Qoder 装了没、登记了没 | 仅展示 |
+| 手写残留 | profile `cordis.patch.yml` 里的 `# >>> dsh-gateway-shield` 块 | 登记成功后自动摘，先备份 |
+
+退出码：`0` 就位 / `1` 有阻断项 / `2` 参数或 profile 不存在。
+
+装完的复检用的是同一套检测，所以「绿灯」不是安装器自己说的，是重新体检出来的：
+
+```
+复检通过：
+  ✓ desktop  shield v0.4.0 已登记　破甲 dsh-purge@1.1.71
+  ✓ web      shield v0.4.0 已登记　破甲 dsh-purge-community@1.6.84
+```
+
+---
+
 ## 一键装齐三件套
 
 「装这个」和「装那三个」本来就该是同一件事：本插件只有配上连接器（提供模型）和
