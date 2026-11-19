@@ -112,7 +112,13 @@ try {
   if (!res.ok) die(`下载失败 HTTP ${res.status}。仓库是否存在？是否为公开仓库？`);
   tarball = Buffer.from(await res.arrayBuffer());
 } catch (e) {
-  die(`下载失败：${e.message}\n网络受限的话设代理：$env:HTTPS_PROXY="http://127.0.0.1:7897"`);
+  die(
+    `下载失败：${e.message}\n` +
+      `网络受限时：Node 24+ 先设 $env:NODE_USE_ENV_PROXY="1" 再设 $env:HTTPS_PROXY="http://127.0.0.1:7897"；\n` +
+      `Node 18–23 的 fetch 不读代理变量，改用先下载再跑：\n` +
+      `  curl -fsSL https://raw.githubusercontent.com/${REPO}/${REF}/bootstrap.mjs -o bootstrap.mjs\n` +
+      `  node bootstrap.mjs --with-companions`,
+  );
 }
 log(`      ${(tarball.length / 1024).toFixed(1)} KB`);
 
@@ -205,12 +211,21 @@ const { ensureBundles, hasMarkerBlock, stripMarkerBlock, readManifest } = await 
 );
 
 log(`[4/5] 登记 dsh.profile.bundles`);
-if (DRY) {
-  log(`      [dry-run] 将把 ${ID} 追加进 dsh.profile.bundles`);
-} else {
-  const reg = ensureBundles(profileDir, [ID], { backupDir });
-  if (!reg.ok) die(`登记失败：${reg.error}`);
-  log(reg.changed ? `      ✓ 已登记${reg.backup ? `（备份 ${path.basename(reg.backup)}）` : ""}` : "      ✓ 已收录，无需改动");
+{
+  const read = readManifest(profileDir);
+  const current = read.ok && Array.isArray(read.manifest?.dsh?.profile?.bundles) ? read.manifest.dsh.profile.bundles : [];
+  const alreadyListed = current.includes(ID);
+  if (DRY) {
+    log(
+      alreadyListed
+        ? `      [dry-run] 已在 dsh.profile.bundles 中，不会改动`
+        : `      [dry-run] 将把 ${ID} 追加进 dsh.profile.bundles`,
+    );
+  } else {
+    const reg = ensureBundles(profileDir, [ID], { backupDir });
+    if (!reg.ok) die(`登记失败：${reg.error}`);
+    log(reg.changed ? `      ✓ 已登记${reg.backup ? `（备份 ${path.basename(reg.backup)}）` : ""}` : "      ✓ 已收录，无需改动");
+  }
 }
 
 const listed = (() => {
@@ -277,7 +292,12 @@ if (WITH_COMPANIONS) {
 
     const ids = plan.items.filter((i) => !skip.includes(i.id)).map((i) => i.id);
     const reg = companions.registerBundles({ profileDir, ids, backupDir, dryRun: DRY });
-    if (DRY) log(`      [dry-run] 将把 ${reg.added.join(", ") || "（无）"} 追加进 dsh.profile.bundles`);
+    if (DRY)
+      log(
+        reg.added.length > 0
+          ? `      [dry-run] 将把 ${reg.added.join(", ")} 追加进 dsh.profile.bundles`
+          : `      [dry-run] 已在 dsh.profile.bundles 中，不会改动`,
+      );
     else if (!reg.ok) {
       log(`      ✗ 登记失败：${reg.error}`);
       process.exitCode = 1;
@@ -299,11 +319,16 @@ try {
 
 log("");
 log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-log("装好了。重启 DSH 后生效。");
-log("");
-log("预期：");
-log("  · 设置 → 插件 里能看到 dsh-gateway-shield，可以开关");
-log("  · 日志出现 [gateway-shield] active | sanitize=true refusalRetry=true …");
-log("");
-log("体检：node \"" + path.join(targetDir, "install.mjs") + "\" --verify");
+if (DRY) {
+  log("预演完成。上面是「真跑会发生什么」，没有改动任何文件。");
+  log("去掉 --dry-run 再跑一次即可落地。");
+} else {
+  log("装好了。重启 DSH 后生效。");
+  log("");
+  log("预期：");
+  log("  · 设置 → 插件 里能看到 dsh-gateway-shield，可以开关");
+  log("  · 日志出现 [gateway-shield] active | sanitize=true refusalRetry=true …");
+  log("");
+  log("体检：node \"" + path.join(targetDir, "install.mjs") + "\" --verify");
+}
 log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");

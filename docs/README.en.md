@@ -1,4 +1,4 @@
-﻿<div align="center">
+<div align="center">
 
 # dsh-gateway-shield
 
@@ -348,9 +348,10 @@ No git, no `npm install` — only Node's built-in `fetch` and the system `tar`. 
 >
 > **Why flags go into `globalThis.__SHIELD_ARGV`**: `node -e` cannot carry script arguments through `process.argv` — anything after `--` is parsed by Node itself.
 
-Behind a proxy:
+Behind a proxy (`fetch` only honours proxy variables on Node 24+; on 18–23 use the download-then-run route):
 
 ```powershell
+$env:NODE_USE_ENV_PROXY="1"
 $env:HTTPS_PROXY="http://127.0.0.1:7897"
 ```
 

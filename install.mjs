@@ -253,9 +253,10 @@ function install() {
   }
 
   // ---- 登记：DSH 只认 dsh.profile.bundles ----
-  const reg = DRY ? { ok: true, changed: true, backup: null } : ensureBundles(profile.dir, [ID], { backupDir: BACKUP_DIR });
+  const alreadyListed = profileRegistered().listed;
+  const reg = DRY ? { ok: true, changed: !alreadyListed, backup: null } : ensureBundles(profile.dir, [ID], { backupDir: BACKUP_DIR });
   if (DRY) {
-    log(`[dry-run] 将把 ${ID} 追加进 dsh.profile.bundles`);
+    log(alreadyListed ? `[dry-run] 已在 dsh.profile.bundles 中，不会改动` : `[dry-run] 将把 ${ID} 追加进 dsh.profile.bundles`);
   } else if (!reg.ok) {
     log(`✗ 登记失败：${reg.error}`);
     process.exitCode = 1;
@@ -344,7 +345,11 @@ function installCompanionSet() {
   });
 
   if (DRY) {
-    log(`  [dry-run] 将把 ${reg.added.join(", ") || "（无）"} 追加进 dsh.profile.bundles`);
+    log(
+      reg.added.length > 0
+        ? `  [dry-run] 将把 ${reg.added.join(", ")} 追加进 dsh.profile.bundles`
+        : `  [dry-run] 已在 dsh.profile.bundles 中，不会改动`,
+    );
   } else if (!reg.ok) {
     log(`  ✗ 登记失败：${reg.error}`);
     process.exitCode = 1;

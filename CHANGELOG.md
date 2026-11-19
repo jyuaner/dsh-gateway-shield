@@ -1,4 +1,4 @@
-﻿# Changelog
+# Changelog
 
 本文件记录所有值得写下来的改动。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
@@ -39,6 +39,10 @@
   先检查登记状态，没有就拒绝并提示先跑 `node install.mjs`。
 - **`--verify` 体检项不完整**：补上 `lib/companions.js` / `lib/profile.js`
   文件检查、`dsh.profile.bundles` 登记检查、三件套的安装与登记状态。
+- **`--dry-run` 的文案会撒谎**：明明已经登记过，仍打印「将追加」；结尾还写「装好了」。
+  现在按实际状态输出，结尾改成「预演完成，没有改动任何文件」。
+- **代理提示不生效**：原文让人设 `HTTPS_PROXY`，但 Node 的 `fetch` 只有 24+ 才读
+  代理变量。现在提示补上 `NODE_USE_ENV_PROXY=1`，并给出 18–23 的替代路线。
 
 ### 测试
 

@@ -1,4 +1,4 @@
-﻿<div align="center">
+<div align="center">
 
 # dsh-gateway-shield
 
@@ -357,9 +357,10 @@ node --input-type=module -e "globalThis.__SHIELD_ARGV=['--with-companions']; con
 >
 > **为什么参数写进 `globalThis.__SHIELD_ARGV`**：`node -e` 的 `process.argv` 里塞不进脚本参数（`--` 之后的会被 Node 自己解析）。
 
-网络受限时加代理：
+网络受限时加代理（`fetch` 只有 Node 24+ 才读代理变量；18–23 请走「先下载再跑」）：
 
 ```powershell
+$env:NODE_USE_ENV_PROXY="1"
 $env:HTTPS_PROXY="http://127.0.0.1:7897"
 ```
 

@@ -1,4 +1,4 @@
-﻿<div align="center">
+<div align="center">
 
 # dsh-gateway-shield
 
@@ -347,9 +347,10 @@ git も `npm install` も不要。Node 標準の `fetch` と OS の `tar` だけ
 >
 > **なぜ引数を `globalThis.__SHIELD_ARGV` に書くのか**：`node -e` では `process.argv` にスクリプト引数を載せられない（`--` 以降は Node 自身が解釈する）。
 
-プロキシが必要な場合：
+プロキシが必要な場合（`fetch` がプロキシ変数を読むのは Node 24+。18–23 は「ダウンロードしてから実行」を使う）：
 
 ```powershell
+$env:NODE_USE_ENV_PROXY="1"
 $env:HTTPS_PROXY="http://127.0.0.1:7897"
 ```
 
