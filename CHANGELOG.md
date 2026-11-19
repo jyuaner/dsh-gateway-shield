@@ -3,6 +3,50 @@
 本文件记录所有值得写下来的改动。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.1] - 2026-11-19
+
+这一版是**事故修复**。0.3.0 装完重启会让 DSH 直接起不来；同时把「装这个」
+真正做成一条命令 —— 搭档先检测，缺的才下载。
+
+### 修复
+
+- **`dsh.client` 声明让 DSH 启动失败（严重，0.2.0 引入、0.3.0 仍在）**。
+  0.2.0 为了「让 web profile 认得本包」加了 `"client": {"platform": "web"}`。
+  这行的真实语义是「本包带浏览器端模块」：宿主 `dsh-client-modules` 会对每个这么声明的
+  包去找 `exports["./client"]`，找不到就抛
+  `declares dsh.client but exports no "./client" bundle`，`dsh-app-boot` 把它算作
+  required plugin 未激活 → `StartupError` → 进程退出。本插件是纯宿主侧，已删除该声明；
+  加载路径只剩 `dsh.bundle` + `dsh.profile.bundles`。
+- **安装器没有「装完会不会起不来」这一关**。新增 `lib/manifest.js`，按宿主
+  `parseDshClient()` / `clientExportOf()` 的真实规则体检清单，并把两种不合格分开：
+  「不生效」（缺 `dsh.bundle.patch`）与「起不来」（client 声明残缺）。
+  - `install.mjs`：落盘前检查源清单，落盘后按装进去的那份再查一次，不合格就**不登记**。
+  - `bootstrap.mjs`：解包后先查，毒清单直接拒装，一个字节都不写。
+  - `lib/profile.js`：登记处加同一道闸门 —— 会让宿主起不来的包不进
+    `dsh.profile.bundles`。宁可插件不生效，也不让 DSH 死。
+- **`--verify` 看不到启动风险**。体检新增「不影响启动」项，并把
+  `lib/manifest.js` 纳入文件清单；搭档里清单有毒的单独标红并计入不合格。
+
+### 变更
+
+- **一条命令就是完整安装**：`install.mjs` / `bootstrap.mjs` 默认处理搭档三件套，
+  `--no-companions`（别名 `--without-companions`）才是「只要本体」。
+  `--with-companions` / `--all` 仍然接受，语义变成「显式要求」。
+- **搭档先检测，没有再下载**：`planCompanions()` 新增 `summary`
+  （`已装 N 个 → 跳过；缺 M 个 → 下载`）。已在 `node_modules` 且清单健康的直接不进
+  包管理器命令，因此不会重复下载；已装但清单有毒的算「没就位」，会被要求重装并告警。
+- **默认模式下搭档失败只告警**：插件本体已装好时，用一个可选依赖把结果改写成「安装失败」
+  是误导。显式点名（`--with-companions` / `--only`）时仍以非零码退出。
+
+### 测试
+
+- 自测 38 → 47 项：新增 9 项清单启动安全断言，含「本包不得声明 `dsh.client`」这条回归闸门、
+  `dsh.client` 三种畸形形态、`platform` 非 `web` 时宿主忽略、以及
+  `resolveClientExport()` 与宿主同构。
+- 搭档测试 30 → 38 项：新增检测优先（已装/毒清单）、登记拒绝毒清单、
+  默认一键装、`--no-companions` 完全不碰、全装好时不发起下载。
+- 合计 47 + 13 + 38 = **98 项全通过**（`npm test`）。
+
 ## [0.3.0] - 2026-11-19
 
 这一版的主题是**「装完真的会跑」**。上一个版本能装、能识别，但在一台干净的机器上
@@ -78,6 +122,7 @@
 - 首个可用版本：`llm/stream` 钩子、15 条网关指纹同义改写、软拒绝带加固段重试。
 - 靠往 profile 的 `cordis.patch.yml` 手写注册块挂载（0.2.0 起改为 `dsh.bundle`）。
 
+[0.3.1]: https://github.com/jyuaner/dsh-gateway-shield/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/jyuaner/dsh-gateway-shield/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/jyuaner/dsh-gateway-shield/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/jyuaner/dsh-gateway-shield/releases/tag/v0.1.0
