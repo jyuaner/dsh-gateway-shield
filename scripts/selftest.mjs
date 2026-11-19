@@ -7,9 +7,17 @@
  *   - agent-loop 冻结 options 与每条 message → 必须构造未冻结副本
  */
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { CHANNEL_GATE_PHRASES, rewriteText, scansRole, rewriteBlocks, shieldOptions } from "../lib/sanitize.js";
 import { looksLikeRefusal, refusalMatchIndex, withNudge, RETRY_NUDGE } from "../lib/refusal.js";
 import { apply, DEFAULTS, SHIELDED } from "../lib/index.js";
+import { checkPackage, resolveClientExport } from "../lib/manifest.js";
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(HERE, "..");
 
 /**
  * 自测需要真实的 cordis Context 才能验证 waterfall 语义。
@@ -571,6 +579,135 @@ test("verbose=true 才写逐请求日志", () => {
     }),
   );
   assert.ok(logs.some((l) => l.includes("sanitize provider=workbuddy")), JSON.stringify(logs));
+});
+
+// ---------------------------------------------------------------- 清单启动安全
+//
+// 这一组是 0.3.0 事故的回归闸门：声明了 dsh.client.platform="web" 却没有
+// exports["./client"] 时，宿主 dsh-client-modules 的 resolveMeta() 抛错 →
+// dsh-app-boot 算成「required plugin did not activate」→ DSH 直接退出。
+
+const tmpRoots = [];
+process.on("exit", () => {
+  for (const dir of tmpRoots) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* 清不掉不影响断言结果 */
+    }
+  }
+});
+
+/** 造一个包目录，返回路径。 */
+function pkgFixture(manifest, files = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "shield-manifest-"));
+  tmpRoots.push(dir);
+  fs.writeFileSync(path.join(dir, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  for (const [rel, body] of Object.entries(files)) {
+    const abs = path.join(dir, rel);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, body);
+  }
+  return dir;
+}
+
+const BUNDLE_OK = { bundle: { patch: "./cordis.patch.yml" } };
+const PATCH_FILE = { "cordis.patch.yml": "- insert: []\n" };
+
+test("本包清单：可启动，且不含 dsh.client", () => {
+  const res = checkPackage(REPO_ROOT);
+  assert.equal(res.startable, true, res.problems.map((p) => p.message).join(" | "));
+  assert.equal(res.ok, true, "dsh.bundle.patch 也必须有效");
+  assert.equal(res.clientDeclared, false, "纯宿主插件不该声明 dsh.client —— 0.3.0 就是栽在这一行");
+});
+
+test("dsh.client 没有 ./client 入口 → 判为会让 DSH 起不来", () => {
+  const dir = pkgFixture(
+    { name: "x", version: "1.0.0", exports: { ".": "./lib/index.js" }, dsh: { ...BUNDLE_OK, client: { platform: "web" } } },
+    PATCH_FILE,
+  );
+  const res = checkPackage(dir);
+  assert.equal(res.startable, false);
+  assert.equal(res.clientDeclared, true);
+  const p = res.problems.find((x) => x.code === "client-export-missing");
+  assert.ok(p?.fatal, "必须是 fatal");
+  assert.match(p.message, /required plugin/);
+});
+
+test("dsh.client 入口指向不存在的文件 → 也让 DSH 起不来", () => {
+  const dir = pkgFixture(
+    {
+      name: "x",
+      version: "1.0.0",
+      exports: { "./client": "./client.js" },
+      dsh: { ...BUNDLE_OK, client: { platform: "web" } },
+    },
+    PATCH_FILE,
+  );
+  const res = checkPackage(dir);
+  assert.equal(res.startable, false);
+  assert.ok(res.problems.some((p) => p.code === "client-export-file-missing" && p.fatal));
+});
+
+test("dsh.client 入口齐全 → 可启动", () => {
+  const dir = pkgFixture(
+    {
+      name: "x",
+      version: "1.0.0",
+      exports: { "./client": { default: "./client.js" } },
+      dsh: { ...BUNDLE_OK, client: { platform: "web" } },
+    },
+    { ...PATCH_FILE, "client.js": "export {};\n" },
+  );
+  const res = checkPackage(dir);
+  assert.equal(res.startable, true, res.problems.map((p) => p.message).join(" | "));
+  assert.equal(res.ok, true);
+});
+
+test("dsh.client 不是对象 / platform 不是字符串 → 可启动判否", () => {
+  const nonObject = pkgFixture({ name: "x", version: "1.0.0", dsh: { ...BUNDLE_OK, client: true } }, PATCH_FILE);
+  assert.equal(checkPackage(nonObject).startable, false);
+  assert.ok(checkPackage(nonObject).problems.some((p) => p.code === "client-non-object" && p.fatal));
+
+  const noPlatform = pkgFixture({ name: "x", version: "1.0.0", dsh: { ...BUNDLE_OK, client: {} } }, PATCH_FILE);
+  assert.equal(checkPackage(noPlatform).startable, false);
+  assert.ok(checkPackage(noPlatform).problems.some((p) => p.code === "client-platform-missing" && p.fatal));
+});
+
+test("platform 不是 web 时宿主会忽略，不阻断启动", () => {
+  const dir = pkgFixture(
+    { name: "x", version: "1.0.0", dsh: { ...BUNDLE_OK, client: { platform: "desktop" } } },
+    PATCH_FILE,
+  );
+  const res = checkPackage(dir);
+  assert.equal(res.startable, true);
+  assert.equal(res.clientDeclared, true);
+});
+
+test("缺 bundle patch：不影响启动，但算不上可用组合包", () => {
+  const dir = pkgFixture({ name: "x", version: "1.0.0" }, {});
+  const res = checkPackage(dir);
+  assert.equal(res.startable, true, "缺 patch 只是不加载，不会让宿主退出");
+  assert.equal(res.ok, false);
+  assert.ok(res.problems.some((p) => p.code === "bundle-patch-missing" && p.fatal === false));
+});
+
+test("resolveClientExport 与宿主 clientExportOf 同构", () => {
+  assert.equal(resolveClientExport({ "./client": "./c.js" }).rel, "./c.js");
+  assert.equal(resolveClientExport({ "./client": { default: "./c.js" } }).rel, "./c.js");
+  assert.equal(resolveClientExport({ "./client": { import: "./c.js" } }).ok, false, "非 default 条件宿主也不认");
+  assert.equal(resolveClientExport("./index.js").ok, false, "字符串形式没有任何子路径");
+  assert.equal(resolveClientExport(undefined).ok, false);
+});
+
+test("清单读不出来时按 fatal 处理", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "shield-manifest-"));
+  tmpRoots.push(dir);
+  fs.writeFileSync(path.join(dir, "package.json"), "{ not json");
+  const res = checkPackage(dir);
+  assert.equal(res.startable, false);
+  assert.equal(res.ok, false);
+  assert.ok(res.problems.some((p) => p.code === "manifest-unreadable"));
 });
 
 // ---------------------------------------------------------------- 报告

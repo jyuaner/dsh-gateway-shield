@@ -4,32 +4,40 @@
  *
  * ## 它负责什么
  *
- * 三件事，按顺序：
+ * 四件事，按顺序：
  *
+ *   0. **预检** —— 装上这份清单会不会让 DSH 起不来（lib/manifest.js）。
+ *      0.3.0 就是漏了这一步：`dsh.client` 声明没有对应 `./client` 入口，
+ *      宿主 `dsh-client-modules` 抛错 → `StartupError` → DSH 直接退出。
  *   1. **放文件** —— 把包复制进 `<profile>/node_modules/dsh-gateway-shield`
  *      （pnpm/npm 装的话这一步已经由包管理器做了，跳过即可）
  *   2. **登记** —— 把包名追加进 profile 的 `dsh.profile.bundles`
  *      DSH 只从这里读组合包；只放文件不登记，启动时一行都不会跑
- *   3. **可选：装齐搭档** —— `--with-companions` 把 dsh-purge / 两个连接器
- *      一并装上并登记，一条命令到达「能用」的状态
+ *   3. **搭档** —— dsh-purge / 两个连接器。默认一并处理，且**先检测**：
+ *      已经在 profile 里的直接跳过，只下载缺的那几个。
  *
  * 早期版本没有 `dsh.bundle` 声明，只能靠往 profile 的 `cordis.patch.yml`
  * 手写注册块。现在有声明了，那段手写块就是重复注册 —— 但**必须等第 2 步
  * 登记成功之后**才能摘，否则会出现「文件在、注册没了」的孤儿状态。
  *
  * 用法：
- *   node install.mjs                        放文件 + 登记
- *   node install.mjs --with-companions      再装齐 dsh-purge + 两个连接器
- *   node install.mjs --only dsh-qoder-connect --with-companions
- *   node install.mjs --verify               体检：文件 / 声明 / 登记 / 搭档
+ *   node install.mjs                        放文件 + 登记 + 补齐缺的搭档
+ *   node install.mjs --no-companions        只装本插件
+ *   node install.mjs --only dsh-qoder-connect   只处理指定搭档（可逗号分隔）
+ *   node install.mjs --skip dsh-purge-community
+ *   node install.mjs --verify               体检：清单 / 文件 / 声明 / 登记 / 搭档
  *   node install.mjs --clean                清掉早期版本的手写注册块
  *   node install.mjs --dry-run              只打印计划，不动盘
+ *
+ * `--with-companions` / `--all` 仍然接受：它们现在只是「显式要求」的同义词，
+ * 区别是失败时会以非零码退出（默认模式只告警，因为插件本身已经装好了）。
  */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureBundles, hasMarkerBlock, readManifest, stripMarkerBlock } from "./lib/profile.js";
+import { checkPackage, describeProblems } from "./lib/manifest.js";
 import {
   COMPANIONS,
   describePlan,
@@ -63,7 +71,11 @@ function list(name) {
 const DRY = has("dry-run");
 const VERIFY = has("verify");
 const CLEAN = has("clean");
-const WITH_COMPANIONS = has("with-companions") || has("all") || list("only").length > 0;
+/** 搭档默认一起处理 —— 这才是「装这个就一条命令」的意思。 */
+const NO_COMPANIONS = has("no-companions") || has("without-companions");
+/** 显式点名要求搭档时，搭档失败算失败；默认模式只告警（插件本身已经装好了）。 */
+const EXPLICIT_COMPANIONS = has("with-companions") || has("all") || list("only").length > 0;
+const WITH_COMPANIONS = !NO_COMPANIONS;
 
 const ID = "dsh-gateway-shield";
 
@@ -139,6 +151,44 @@ function readBundleDeclaration() {
   }
 }
 
+/**
+ * 打印某份清单的体检结果。
+ *
+ * @returns {boolean} 是否「不会让 DSH 起不来」
+ */
+function reportManifest(label, result, { quietWhenClean = false } = {}) {
+  if (result.problems.length === 0) {
+    if (!quietWhenClean) {
+      log(`✓ ${label} 清单健康（bundle 声明有效${result.clientDeclared ? "，client 入口齐全" : "，无 dsh.client 声明"}）`);
+    }
+    return true;
+  }
+  if (!result.startable) {
+    log(`✗ ${label} 清单会让 DSH 启动失败：`);
+  } else {
+    log(`! ${label} 清单有问题（不至于阻断启动）：`);
+  }
+  log(describeProblems(result, "    "));
+  return result.startable;
+}
+
+/**
+ * 装前预检：*要装进 profile 的那份清单*会不会让 DSH 起不来。
+ *
+ * 0.3.0 的 `dsh.client` 事故就是缺了这一关 —— 安装器一路绿灯，
+ * 重启后 DSH 抛 `ClientPackageCompositionError` 直接退出。
+ */
+function preflightInstall() {
+  const self = checkPackage(HERE);
+  if (!self.startable) {
+    log("✗ 本包清单会让 DSH 启动失败，拒绝安装（不会动你的 profile）：");
+    log(describeProblems(self, "    "));
+    process.exit(1);
+  }
+  reportManifest("本包", self);
+  return self;
+}
+
 /** profile 的 bundles 是否已经接管本包。 */
 function profileRegistered(id = ID) {
   const read = readManifest(profile.dir);
@@ -155,7 +205,7 @@ function verify() {
   log("");
 
   // 1) 文件完整
-  for (const f of ["package.json", "lib/index.js", "lib/sanitize.js", "lib/refusal.js", "lib/companions.js", "lib/profile.js", "cordis.patch.yml"]) {
+  for (const f of ["package.json", "lib/index.js", "lib/sanitize.js", "lib/refusal.js", "lib/companions.js", "lib/profile.js", "lib/manifest.js", "cordis.patch.yml"]) {
     const ok = fs.existsSync(path.join(TARGET, f));
     log(`${ok ? "✓" : "✗"} ${f}`);
     if (!ok) bad += 1;
@@ -177,7 +227,18 @@ function verify() {
   log(`${decl.ok ? "✓" : "✗"} dsh.bundle.patch = ${decl.ok ? decl.rel : decl.reason}`);
   if (!decl.ok) bad += 1;
 
-  // 3) 登记情况 —— 这一项才是「会不会真的加载」
+  // 3) 启动安全 —— 这一项才是「装完重启会不会 DSH 直接起不来」
+  //    0.3.0 的 dsh.client 事故在这里能被拦下。bundle 相关的问题上面已经报过。
+  const safe = checkPackage(TARGET);
+  const startupProblems = safe.problems.filter((p) => !p.code.startsWith("bundle-"));
+  if (startupProblems.length === 0) {
+    log(safe.clientDeclared ? "✓ 不影响启动（声明了 client 且有入口）" : "✓ 不影响启动（无 dsh.client 声明）");
+  } else {
+    log(describeProblems({ problems: startupProblems }, "  "));
+    if (startupProblems.some((p) => p.fatal)) bad += 1;
+  }
+
+  // 4) 登记情况 —— 这一项才是「会不会真的加载」
   const reg = profileRegistered();
   if (!reg.ok) {
     log(`✗ ${reg.error}`);
@@ -194,7 +255,7 @@ function verify() {
     if (!legacy) bad += 1;
   }
 
-  // 4) 搭档三件套
+  // 5) 搭档三件套（各自也有启动安全体检）
   log("");
   log("搭档：");
   const installed = detectInstalled(profile.dir);
@@ -202,14 +263,18 @@ function verify() {
   for (const c of COMPANIONS) {
     const s = installed.get(c.id);
     const listed = bundles.has(c.id);
-    const mark = s?.installed ? (listed ? "✓" : "·") : "·";
+    const broken = s?.installed && s.startable === false;
+    const mark = broken ? "✗" : s?.installed ? (listed ? "✓" : "·") : "·";
     const state = s?.installed ? `v${s.version}` : "未装";
-    const note = s?.installed && !listed ? "  装了但没登记（DSH 不会加载）" : "";
-    log(`${mark} ${c.id.padEnd(22)} ${state.padEnd(10)} ${c.role}${note}`);
+    const notes = [];
+    if (s?.installed && !listed) notes.push("装了但没登记（DSH 不会加载）");
+    if (broken) notes.push("清单会让 DSH 起不来");
+    log(`${mark} ${c.id.padEnd(22)} ${state.padEnd(10)} ${c.role}${notes.length ? `  ${notes.join("；")}` : ""}`);
+    if (broken) bad += 1;
   }
   const missing = COMPANIONS.filter((c) => !installed.get(c.id)?.installed);
   if (missing.length > 0) {
-    log(`  补齐：node install.mjs --with-companions${list("only").length ? ` --only ${list("only").join(",")}` : ""}`);
+    log(`  补齐：node install.mjs --only ${missing.map((c) => c.id).join(",")}`);
   }
 
   log("");
@@ -232,6 +297,11 @@ function install() {
   log(`  profile ${profile.name}`);
   log(`  目标    ${TARGET}`);
   log(`  声明    dsh.bundle.patch = ${decl.rel}`);
+  log(`  搭档    ${NO_COMPANIONS ? "跳过（--no-companions）" : "一并处理：先检测，只下载缺的"}`);
+  log("");
+
+  // ---- 装前预检：这份清单会不会让 DSH 起不来 ----
+  preflightInstall();
   log("");
 
   if (DRY) {
@@ -250,6 +320,16 @@ function install() {
       }
     }
     log(`✓ ${n} 个文件已覆盖`);
+
+    // 落盘后按「装进去的那份」再复检：复制/残留文件都可能让清单变质。
+    // 不合格就别登记了 —— 登记 = 下次启动一定加载这份清单。
+    const installedCheck = checkPackage(TARGET);
+    if (!reportManifest("已安装", installedCheck, { quietWhenClean: true })) {
+      log("✗ 已安装的清单会让 DSH 启动失败，停止登记（你的 DSH 不会因此起不来）。");
+      log("  处理：换成 0.3.1+ 的包重装，或手动修 package.json 里的 dsh.client 声明。");
+      process.exitCode = 1;
+      return;
+    }
   }
 
   // ---- 登记：DSH 只认 dsh.profile.bundles ----
@@ -284,7 +364,7 @@ function install() {
     }
   }
 
-  // ---- 可选：搭档三件套 ----
+  // ---- 搭档：默认一并处理；先检测，只下载缺的 ----
   if (WITH_COMPANIONS) {
     log("");
     installCompanionSet();
@@ -294,6 +374,21 @@ function install() {
   log("完成。重启 DSH 后生效：");
   log("  设置 → 插件 里应能看到 dsh-gateway-shield，并且可以开关");
   log("  日志里应出现 [gateway-shield] active …");
+}
+
+/**
+ * 搭档安装失败的处理：显式要求时算失败，默认模式只告警。
+ * 默认模式之所以不失败退出，是因为插件本身已经装好了 —— 用一个可选的
+ * 依赖把「主功能已就位」的故事改写成「安装失败」是误导。
+ */
+function companionFailure(message) {
+  if (EXPLICIT_COMPANIONS) {
+    log(`  ✗ ${message}`);
+    process.exitCode = 1;
+  } else {
+    log(`  ! ${message}`);
+    log("  · 插件本体已装好，搭档可以之后补：node install.mjs --only <id>");
+  }
 }
 
 function installCompanionSet() {
@@ -307,11 +402,12 @@ function installCompanionSet() {
   if (plan.unknown.length > 0) {
     log(`✗ 未知的插件 id：${plan.unknown.join(", ")}`);
     log(`  可选：${COMPANIONS.map((c) => c.id).join(" / ")}`);
-    process.exitCode = 1;
+    if (EXPLICIT_COMPANIONS) process.exitCode = 1;
     return;
   }
 
-  log(`搭档（包管理器 ${plan.pm}）：`);
+  const { summary } = plan;
+  log(`搭档（包管理器 ${plan.pm}）：已装 ${summary.skipped} 个 → 跳过；缺 ${summary.download} 个 → ${summary.download ? "下载" : "无需下载"}`);
   for (const line of describePlan(plan)) log(`  ${line}`);
   for (const w of plan.warnings) log(`  ! ${w}`);
 
@@ -323,14 +419,13 @@ function installCompanionSet() {
   });
 
   if (!res.ran && res.reason === "nothing-missing") {
-    log("  全部已就位，无需安装");
+    log("  · 全部已就位，没有发起下载");
   } else if (res.reason === "dry-run") {
     log(`  [dry-run] 将执行：${res.command}`);
   } else if (!res.ok) {
-    log(`  ✗ ${res.error}`);
+    companionFailure(res.error);
     if (res.hint) log(`  ${res.hint}`);
     if (res.backups?.length) log(`  备份：${res.backups.map((b) => path.basename(b)).join(", ")}`);
-    process.exitCode = 1;
     return;
   } else {
     log(`  ✓ ${res.command}`);
@@ -351,15 +446,16 @@ function installCompanionSet() {
         : `  [dry-run] 已在 dsh.profile.bundles 中，不会改动`,
     );
   } else if (!reg.ok) {
-    log(`  ✗ 登记失败：${reg.error}`);
-    process.exitCode = 1;
+    companionFailure(`登记失败：${reg.error}`);
   } else if (reg.added.length > 0) {
     log(`  ✓ 已登记：${reg.added.join(", ")}`);
   } else {
     log(`  · dsh.profile.bundles 已收录，无需改动`);
   }
   if (reg.skipped?.length) {
+    const sick = reg.skipped.filter((s) => String(s.reason).includes("起不来"));
     for (const s of reg.skipped) log(`  ! ${s.name} 跳过登记：${s.reason}`);
+    if (sick.length > 0) companionFailure("有搭档的清单会让 DSH 起不来，已拒绝登记（不会写进 dsh.profile.bundles）");
   }
   const needLogin = plan.items.filter((i) => i.login && (i.installed || reg.added.includes(i.id)));
   if (needLogin.length > 0) {

@@ -42,29 +42,39 @@ dsh-gateway-shield makes WorkBuddy / Qoder models        ← this plugin
 ## Install all three in one command
 
 This plugin only does something useful next to the connectors (which supply the
-models) and `dsh-purge` (which supplies the other half of the jailbreak).
+models) and `dsh-purge` (which supplies the other half of the jailbreak). Installing
+the plugin *is* installing the set — there is no extra switch.
 
 ```bash
 # from a clone
-node install.mjs --with-companions
+node install.mjs
 
 # or a one-liner, no git needed
-node --input-type=module -e "globalThis.__SHIELD_ARGV=['--with-companions']; const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
+node --input-type=module -e "const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
 ```
+
+Companions are **detected first, downloaded only if missing**: anything already in
+`node_modules` with a healthy manifest is skipped with no network request at all; the
+missing ones are merged into a single `pnpm add` / `npm install`. Running the command a
+second time is instant, and `--dry-run` says so out loud:
+`already installed 3 → skipped; missing 0 → nothing to download`.
 
 What it does, in order:
 
 | Step | Action | Why it is mandatory |
 | --- | --- | --- |
+| 0 | Pre-flight the manifest: can this `package.json` stop DSH from booting? | the 0.3.0 `dsh.client` incident: all green, then DSH exits on restart |
 | 1 | Copy this package into `<profile>/node_modules/dsh-gateway-shield` | files on disk |
 | 2 | **Append the package name to `dsh.profile.bundles`** | DSH reads bundles only from that list; files alone never load |
 | 3 | Remove the legacy hand-written block — only after step 2 succeeded | doing it in the other order leaves an orphan directory nobody loads |
-| 4 | `pnpm add` whichever companions are missing (one command) | they ship dependencies; copying files yields a directory that breaks on `import` |
-| 5 | Register the companions in `dsh.profile.bundles` too | same reason as step 2 |
+| 4 | Detect companions: skip what is there, `pnpm add` only what is missing | they ship dependencies; copying files yields a directory that breaks on `import` — and there is no reason to re-download |
+| 5 | Register the ready companions in `dsh.profile.bundles` (poisoned manifests are refused) | same reason as step 2; better an inactive plugin than a dead DSH |
 | 6 | Report what is still missing (e.g. logging in to WorkBuddy / Qoder) | without a local login the models never show up |
 
-Flags: `--with-companions` (alias `--all`), `--only a,b`, `--skip a,b`,
-`--pm pnpm|npm`, `--dry-run`, `--profile web`, `--dsh-home PATH`.
+Flags: `--no-companions` (alias `--without-companions`, plugin only),
+`--with-companions` (alias `--all`, now just "explicitly required" so failures exit non-zero),
+`--only a,b`, `--skip a,b`, `--pm pnpm|npm`, `--dry-run`, `--verify`, `--profile web`,
+`--dsh-home PATH`.
 
 | id | Layer | Role | Node |
 | --- | --- | --- | --- |
@@ -294,10 +304,11 @@ handled by this package's installer.
 ### Option 0: all three, one command (recommended)
 
 ```bash
-node install.mjs --with-companions
+node install.mjs
 ```
 
-This package plus dsh-purge plus both connectors, registered as they land.
+This package plus dsh-purge plus both connectors (already-installed ones are skipped),
+registered as they land.
 
 ### Option 1: as a dependency
 
@@ -322,13 +333,13 @@ registration; a no-op when already listed). Then **restart DSH**.
 ```bash
 git clone https://github.com/jyuaner/dsh-gateway-shield.git
 cd dsh-gateway-shield
-node install.mjs                     # this package only
-node install.mjs --with-companions   # plus the companions
+node install.mjs                  # plugin + companions (existing ones skipped)
+node install.mjs --no-companions  # plugin only
 ```
 
-`install.mjs` does three things: place files → register in `dsh.profile.bundles` →
-(once registration is confirmed) strip the legacy hand-written block from
-`cordis.patch.yml`.
+`install.mjs` does four things: pre-flight the manifest → place files → register in
+`dsh.profile.bundles` → (once registration is confirmed) strip the legacy hand-written
+block from `cordis.patch.yml` → fill in whatever companions are missing.
 
 ### Option 3: one-liner
 
@@ -336,10 +347,10 @@ node install.mjs --with-companions   # plus the companions
 node --input-type=module -e "const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
 ```
 
-With the companions:
+Plugin only, without companions:
 
 ```bash
-node --input-type=module -e "globalThis.__SHIELD_ARGV=['--with-companions']; const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
+node --input-type=module -e "globalThis.__SHIELD_ARGV=['--no-companions']; const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
 ```
 
 No git, no `npm install` — only Node's built-in `fetch` and the system `tar`. Requires Node ≥ 18.
@@ -358,12 +369,17 @@ $env:HTTPS_PROXY="http://127.0.0.1:7897"
 ### What installation changes
 
 - Creates/overwrites `<profile>/node_modules/dsh-gateway-shield`.
+- Pre-flights the manifest before and after copying: a manifest that would make the host
+  throw `ClientPackageCompositionError` (e.g. `dsh.client` without `exports["./client"]`)
+  is refused at install *and* at registration time.
 - **Appends** the package name to `dsh.profile.bundles` in `<profile>/package.json`
   (no write when already listed; the manifest is backed up first). This mirrors the
   plugin manager's `reconcile()`.
 - Upgrades by **overwriting files in place** — no rename, no directory deletion (renaming an occupied directory on Windows returns EBUSY).
 - Removes the legacy block left by 0.1.x **only after** registration is confirmed, backing it up to `~/.dsh/dsh-purge/gateway-shield-backups/`.
-- `--with-companions` additionally rewrites `dependencies` and the lockfile (via pnpm/npm), after backing both up.
+- Companions: **installed-and-healthy ones are left alone**; only the missing (or
+  poisoned) ones go through one `pnpm add` / `npm install`, with `dependencies` and the
+  lockfile backed up first.
 - Does not restart anything, change proxies, or touch other plugins' configuration.
 
 ---
@@ -454,6 +470,7 @@ dsh-gateway-shield health check
 ✓ lib/refusal.js
 ✓ cordis.patch.yml
 ✓ dsh.bundle.patch = ./cordis.patch.yml
+✓ does not block startup (no dsh.client declaration)
 ✓ profile has no hand-written registration (owned by dsh.bundle)
 
 Ready. The plugin manager should recognise it; effective after restarting DSH.
@@ -470,10 +487,46 @@ To watch sanitisation happen, set `verbose: true`:
 
 ---
 
+## DSH will not start after installing
+
+**0.3.0 symptom**: `node install.mjs` reports success, the restart fails, and the log says
+
+```
+error: StartupError: dsh: startup failed: 1 required plugin did not activate
+  AggregateError: client-modules: 1 client package failed to compose:
+    - client-modules: dsh-gateway-shield declares dsh.client but exports no "./client" bundle
+```
+
+**Cause**: 0.2.0 added `"client": { "platform": "web" }` to `package.json` to make the
+web profile "recognise" the package. What that field actually means is *"this package
+ships a browser-side module"*: `dsh-client-modules` looks for `exports["./client"]` on
+every package that declares it, throws when it is missing, and `dsh-app-boot` counts the
+throw as a required plugin that failed to activate — so DSH exits. It has nothing to do
+with permissions, accounts, or versions. This plugin is host-only (`llm/stream` hook);
+**0.3.1 removes the declaration entirely.**
+
+Two ways out if you already hit it:
+
+```bash
+# 1) get DSH booting again: drop it from dsh.profile.bundles (Settings → Plugins, or edit package.json by hand)
+# 2) install the fixed build (overwrites the old files in node_modules)
+node install.mjs
+node install.mjs --verify    # should print "does not block startup (no dsh.client declaration)"
+```
+
+To revive a broken install without reinstalling, delete the whole `dsh.client` block from
+`<profile>/node_modules/dsh-gateway-shield/package.json`.
+
+Since 0.3.1 the installer pre-flights the manifest before and after copying,
+`bootstrap.mjs` checks it before installing anything, and registration refuses a package
+that would stop the host from booting — **better an inactive plugin than a dead DSH**.
+
+---
+
 ## Verification
 
 ```bash
-npm test                # 38 self-tests + 13 end-to-end + 30 installer tests
+npm test                # 47 self-tests + 13 end-to-end + 38 installer tests
 npm run test:companions # only the 30 installer tests (offline, zero dependencies)
 npm run probe           # proves next(opts) is discarded and this.stream() re-entry works
 npm run verify          # health check
@@ -525,15 +578,16 @@ dsh-gateway-shield/
 │   ├── index.js          llm/stream hook, this.stream() re-entry
 │   ├── sanitize.js       15 gateway fingerprint rewrites
 │   ├── refusal.js        refusal detection + hardening segment (three options shapes)
-│   ├── companions.js     companion registry / install plan / executor
+│   ├── companions.js     companion registry / detection / install plan / executor
+│   ├── manifest.js       boot-safety manifest check (real dsh.client / dsh.bundle contract)
 │   └── profile.js        dsh.profile.bundles registration, manifest backup, legacy block removal
 ├── scripts/
-│   ├── selftest.mjs      38 self-tests
+│   ├── selftest.mjs      47 self-tests
 │   ├── e2e.mjs           13 end-to-end tests
-│   ├── companions-test.mjs   30 installer tests (offline, fixture profile)
+│   ├── companions-test.mjs   38 installer tests (offline, fixture profile)
 │   ├── probe-waterfall.mjs   proves next(opts) is discarded
 │   └── probe-reentry.mjs     proves this.stream() re-entry works without recursion
-├── install.mjs           install / register / health check / cleanup, incl. --with-companions
+├── install.mjs           install / register / health check / cleanup; fills in missing companions by default
 ├── bootstrap.mjs         one-liner installer
 ├── CHANGELOG.md          release history
 └── LICENSE               MIT

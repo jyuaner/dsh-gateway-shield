@@ -5,8 +5,10 @@
  * 用法（别人复制这一行就能装）：
  *   node --input-type=module -e "const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
  *
- * 连搭档三件套一起装（dsh-purge + WorkBuddy / Qoder 连接器）：
- *   node --input-type=module -e "globalThis.__SHIELD_ARGV=['--with-companions']; const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
+ * 这一行现在就是完整的：搭档三件套（dsh-purge + WorkBuddy / Qoder 连接器）
+ * 默认一并处理，而且**先检测**——已经在 profile 里的直接跳过，只下载缺的那几个。
+ * 只想要本插件、不要搭档：
+ *   node --input-type=module -e "globalThis.__SHIELD_ARGV=['--no-companions']; const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
  *
  * 为什么参数要写进 `globalThis.__SHIELD_ARGV` 而不是命令行末尾：
  * `node -e` 的 `process.argv` 里塞不进脚本参数（`--` 之后的会被当成 Node 自己的
@@ -25,10 +27,11 @@
  * 步骤：
  *   1. 找 DSH_HOME（默认 ~/.dsh）和 profile（默认 web）
  *   2. 下载仓库 tarball
- *   3. 解包到 <profile>/node_modules/dsh-gateway-shield
- *   4. 把自己追加进 `dsh.profile.bundles` —— DSH 只从这里读组合包
- *   5. 登记成功后才摘掉早期版本的手写注册块
- *   6. 可选：装齐搭档三件套
+ *   3. 解包并**预检清单**：会让 DSH 起不来的清单直接拒绝安装
+ *   4. 落到 <profile>/node_modules/dsh-gateway-shield
+ *   5. 把自己追加进 `dsh.profile.bundles` —— DSH 只从这里读组合包
+ *   6. 登记成功后才摘掉早期版本的手写注册块
+ *   7. 搭档：先检测，只下载缺的
  *
  * 不依赖 git、不依赖 npm install 装自己。只需要 Node >= 18。
  */
@@ -47,7 +50,11 @@ const ID = "dsh-gateway-shield";
 const ARGV = Array.isArray(globalThis.__SHIELD_ARGV) ? globalThis.__SHIELD_ARGV.map(String) : process.argv.slice(2);
 const has = (n) => ARGV.includes(`--${n}`);
 const DRY = has("dry-run");
-const WITH_COMPANIONS = has("with-companions") || has("all") || ARGV.includes("--only");
+/** 搭档默认一并处理；--no-companions 才是「只要本插件」。 */
+const NO_COMPANIONS = has("no-companions") || has("without-companions");
+/** 显式点名要求搭档时，搭档失败算失败；默认模式只告警。 */
+const EXPLICIT_COMPANIONS = has("with-companions") || has("all") || ARGV.includes("--only");
+const WITH_COMPANIONS = !NO_COMPANIONS;
 function list(name) {
   const out = [];
   ARGV.forEach((a, i) => {
@@ -98,7 +105,7 @@ log(`  DSH_HOME  ${DSH_HOME}`);
 log(`  profile   ${profileName}`);
 log(`  目标      ${targetDir}`);
 log(`  来源      github.com/${REPO}@${REF}`);
-log(`  搭档      ${WITH_COMPANIONS ? "一并安装" : "跳过（加 --with-companions 一起装）"}`);
+log(`  搭档      ${WITH_COMPANIONS ? "一并处理：先检测，只装缺的" : "跳过（--no-companions）"}`);
 log("");
 
 // ---------------------------------------------------------------- 下载
@@ -142,6 +149,24 @@ if (!extractedRoot) die(`解包后找不到 ${ID}-* 目录`);
 const src = path.join(tmp, extractedRoot.name);
 log(`      ${extractedRoot.name}`);
 
+// ---------------------------------------------------------------- 预检清单
+
+// 落盘之前先问一句：这份清单会不会让宿主起不来？
+// 0.3.0 的事故是「一路绿灯，重启后 DSH 直接退出」—— 检查放在这里，
+// 用户最多是装不上，不会是「装上了、宿主死了」。
+const { checkPackage, describeProblems } = await import(pathToFileURL(path.join(src, "lib", "manifest.js")).href);
+{
+  const pre = checkPackage(src);
+  if (!pre.startable) {
+    die(
+      "这版清单会让 DSH 启动失败（宿主会抛 ClientPackageCompositionError 并退出），已拒绝安装：\n" +
+        describeProblems(pre, "  ") +
+        "\n\n换用修好的版本，或改 package.json 里的 dsh.client 声明。",
+    );
+  }
+  log(`      ✓ 清单不会阻断启动（v${pre.version ?? "?"}）`);
+}
+
 // ---------------------------------------------------------------- 落盘
 
 log(`[3/5] 安装到 ${targetDir}`);
@@ -181,6 +206,14 @@ if (DRY) {
     }
   }
   log(`      ✓ ${copied} 个文件已覆盖`);
+
+  // 落盘后再按「装进去的那份」复检：残留文件同样能让清单变质。
+  const post = checkPackage(targetDir);
+  if (!post.startable) {
+    die(
+      "已覆盖的文件里清单会让 DSH 启动失败，停止登记（DSH 不会因此起不来）：\n" + describeProblems(post, "  "),
+    );
+  }
 }
 
 // ---------------------------------------------------------------- 校验声明
@@ -256,7 +289,7 @@ if (fs.existsSync(profilePatch) && (listed || DRY)) {
 // ---------------------------------------------------------------- 搭档
 
 if (WITH_COMPANIONS) {
-  log(`[5/5] 搭档三件套`);
+  log(`[5/5] 搭档：先检测，只装缺的`);
   const companions = await import(pathToFileURL(path.join(libRoot, "lib", "companions.js")).href);
   const only = list("only");
   const skip = list("skip");
@@ -265,8 +298,10 @@ if (WITH_COMPANIONS) {
   if (plan.unknown.length > 0) {
     log(`      ✗ 未知的插件 id：${plan.unknown.join(", ")}`);
     log(`        可选：${companions.COMPANIONS.map((c) => c.id).join(" / ")}`);
-    process.exitCode = 1;
+    if (EXPLICIT_COMPANIONS) process.exitCode = 1;
   } else {
+    const { summary } = plan;
+    log(`      已装 ${summary.skipped} 个 → 跳过；缺 ${summary.download} 个 → ${summary.download ? "下载" : "无需下载"}`);
     for (const line of companions.describePlan(plan)) log(`      ${line}`);
     for (const w of plan.warnings) log(`      ! ${w}`);
 
@@ -278,13 +313,14 @@ if (WITH_COMPANIONS) {
     });
 
     if (res.reason === "nothing-missing") {
-      log(`      · 全部已就位`);
+      log(`      · 全部已就位，没有发起下载`);
     } else if (res.reason === "dry-run") {
       log(`      [dry-run] 将执行：${res.command}`);
     } else if (!res.ok) {
-      log(`      ✗ ${res.error}`);
+      log(`      ${EXPLICIT_COMPANIONS ? "✗" : "!"} ${res.error}`);
       if (res.hint) log(`        ${res.hint}`);
-      process.exitCode = 1;
+      if (EXPLICIT_COMPANIONS) process.exitCode = 1;
+      else log("      插件本体已装好，搭档可以之后补：node install.mjs --only <id>");
     } else {
       log(`      ✓ ${res.command}`);
       for (const r of res.results) log(`      ✓ ${r.id.padEnd(22)} v${r.version ?? "?"}`);
@@ -300,7 +336,7 @@ if (WITH_COMPANIONS) {
       );
     else if (!reg.ok) {
       log(`      ✗ 登记失败：${reg.error}`);
-      process.exitCode = 1;
+      if (EXPLICIT_COMPANIONS) process.exitCode = 1;
     } else if (reg.added.length > 0) log(`      ✓ 已登记：${reg.added.join(", ")}`);
     for (const s of reg.skipped ?? []) log(`      ! ${s.name} 跳过登记：${s.reason}`);
 
@@ -308,7 +344,7 @@ if (WITH_COMPANIONS) {
     if (login.length > 0) log(`      · ${login.map((i) => i.title).join(" / ")} 还需在本机登录一次对应客户端，模型才会出现`);
   }
 } else {
-  log(`[5/5] 搭档：跳过（加 --with-companions 一起装）`);
+  log(`[5/5] 搭档：跳过（--no-companions）`);
 }
 
 try {

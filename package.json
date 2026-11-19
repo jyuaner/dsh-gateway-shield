@@ -1,7 +1,7 @@
 {
   "name": "dsh-gateway-shield",
-  "version": "0.3.0",
-  "description": "DSH 出网前的提示词栅栏：网关指纹清洗 + 软拒绝重试，一个插件同时覆盖 WorkBuddy 与 Qoder 模型路由；支持一条命令装齐 dsh-purge 与两个连接器。",
+  "version": "0.3.1",
+  "description": "DSH 出网前的提示词栅栏：网关指纹清洗 + 软拒绝重试，一个插件同时覆盖 WorkBuddy 与 Qoder 模型路由；安装时先检测搭档是否已装，只补缺的那几个。",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -51,9 +51,6 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
-    },
-    "client": {
-      "platform": "web"
     },
     "compatibility": {
       "dsh": ">=0.2.1-rc.1 <0.3.0",

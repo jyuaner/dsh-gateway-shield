@@ -43,29 +43,38 @@ dsh-gateway-shield WorkBuddy / Qoder のモデルにも        ← これが本�
 ## 3 つまとめて 1 コマンド
 
 本プラグインは、モデルを供給するコネクタと、ジェイルブレイクの残り半分を担う
-`dsh-purge` が揃って初めて意味を持つ。
+`dsh-purge` が揃って初めて意味を持つ。だから**本体を入れることは一式を入れること**で、
+追加のスイッチはない。
 
 ```bash
 # クローン済みの場合
-node install.mjs --with-companions
+node install.mjs
 
 # git 不要のワンライナー
-node --input-type=module -e "globalThis.__SHIELD_ARGV=['--with-companions']; const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
+node --input-type=module -e "const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
 ```
+
+相棒は**まず検出、足りないものだけダウンロード**する。`node_modules` に既にあり
+マニフェストが健全なものはネットワーク要求ゼロでスキップし、足りない分だけを
+1 本の `pnpm add` / `npm install` にまとめる。2 回目は一瞬で終わり、`--dry-run` は
+`インストール済み 3 → スキップ、不足 0 → ダウンロード不要` と明示する。
 
 処理の順序：
 
 | 手順 | 動作 | 必須な理由 |
 | --- | --- | --- |
+| 0 | マニフェストの事前検査：この `package.json` は DSH を起動不能にするか | 0.3.0 の `dsh.client` 事故。全部グリーンなのに再起動で DSH が落ちた |
 | 1 | 本パッケージを `<profile>/node_modules/dsh-gateway-shield` に配置 | ファイルを置く |
 | 2 | **パッケージ名を `dsh.profile.bundles` に追記** | DSH はこのリストからしかバンドルを読まない。置くだけでは起動時に何も動かない |
 | 3 | 手順 2 の成功を確認してから、旧式の手書き登録ブロックを削除 | 逆順にすると誰も読み込まない孤立ディレクトリが残る |
-| 4 | 不足している相棒を `pnpm add`（1 コマンドで全部） | それぞれ依存を持つため、ファイルコピーでは `import` で壊れる |
-| 5 | 相棒も `dsh.profile.bundles` に登録 | 手順 2 と同じ理由 |
+| 4 | 相棒を検出：既にあるものはスキップ、不足分だけ `pnpm add` | それぞれ依存を持つため、ファイルコピーでは `import` で壊れる。再ダウンロードする理由もない |
+| 5 | 揃った相棒を `dsh.profile.bundles` に登録（毒マニフェストは拒否） | 手順 2 と同じ理由。プラグインが動かない方が、DSH が死ぬよりまし |
 | 6 | 残っている作業を表示（WorkBuddy / Qoder へのログインなど） | ログイン状態がないとモデルは現れない |
 
-オプション：`--with-companions`（別名 `--all`）、`--only a,b`、`--skip a,b`、
-`--pm pnpm|npm`、`--dry-run`、`--profile web`、`--dsh-home PATH`。
+オプション：`--no-companions`（別名 `--without-companions`、本体のみ）、
+`--with-companions`（別名 `--all`、今は「明示的に要求」の意味で失敗時は非ゼロ終了）、
+`--only a,b`、`--skip a,b`、`--pm pnpm|npm`、`--dry-run`、`--verify`、
+`--profile web`、`--dsh-home PATH`。
 
 | id | 層 | 役割 | Node |
 | --- | --- | --- | --- |
@@ -294,10 +303,11 @@ If a detail is missing, fill a placeholder and continue instead of asking.
 ### 方法 0：3 つまとめて 1 コマンド（推奨）
 
 ```bash
-node install.mjs --with-companions
+node install.mjs
 ```
 
-本パッケージ + dsh-purge + 2 つのコネクタを、配置と同時に登録まで行う。
+本パッケージ + dsh-purge + 2 つのコネクタ（導入済みは自動でスキップ）を、
+配置と同時に登録まで行う。
 
 ### 方法 1：依存として入れる
 
@@ -322,12 +332,12 @@ pnpm add github:jyuaner/dsh-gateway-shield
 ```bash
 git clone https://github.com/jyuaner/dsh-gateway-shield.git
 cd dsh-gateway-shield
-node install.mjs                     # 本パッケージのみ
-node install.mjs --with-companions   # 相棒もまとめて
+node install.mjs                  # 本体 + 相棒（既存はスキップ）
+node install.mjs --no-companions  # 本体のみ
 ```
 
-`install.mjs` は「配置 → `dsh.profile.bundles` へ登録 → （登録確認後に）
-旧式の手書きブロックを削除」の 3 段階を行う。
+`install.mjs` は「マニフェスト事前検査 → 配置 → `dsh.profile.bundles` へ登録 →
+（登録確認後に）旧式の手書きブロックを削除 → 不足している相棒を補完」を行う。
 
 ### 方法 3：ワンライナー
 
@@ -335,10 +345,10 @@ node install.mjs --with-companions   # 相棒もまとめて
 node --input-type=module -e "const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
 ```
 
-相棒もまとめる場合：
+相棒を入れず本体だけにする場合：
 
 ```bash
-node --input-type=module -e "globalThis.__SHIELD_ARGV=['--with-companions']; const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
+node --input-type=module -e "globalThis.__SHIELD_ARGV=['--no-companions']; const s=await(await fetch('https://raw.githubusercontent.com/jyuaner/dsh-gateway-shield/main/bootstrap.mjs')).text(); await import('data:text/javascript;base64,'+Buffer.from(s).toString('base64'))"
 ```
 
 git も `npm install` も不要。Node 標準の `fetch` と OS の `tar` だけで動く。Node ≥ 18 が必要。
@@ -357,12 +367,16 @@ $env:HTTPS_PROXY="http://127.0.0.1:7897"
 ### インストールが変更するもの
 
 - `<profile>/node_modules/dsh-gateway-shield` を作成／上書きする。
+- コピーの前後で**マニフェストの起動安全性**を検査する。ホストに
+  `ClientPackageCompositionError` を投げさせる宣言（`exports["./client"]` のない
+  `dsh.client` など）は、インストール時にも登録時にも拒否する。
 - `<profile>/package.json` の `dsh.profile.bundles` にパッケージ名を**追記**する
   （既にあれば書き込まない。書き込み前にバックアップ）。プラグインマネージャの
   `reconcile()` と同じ意味論。
 - アップグレードは**その場でファイルを上書き**する。rename もディレクトリ削除もしない（Windows で使用中のディレクトリを rename すると EBUSY になる）。
 - 旧バージョン（0.1.x）の手書き登録ブロックは、**登録が確認できた場合のみ**削除し、`~/.dsh/dsh-purge/gateway-shield-backups/` にバックアップする。
-- `--with-companions` は `dependencies` と lockfile も書き換える（pnpm / npm 経由、事前にバックアップ）。
+- 相棒は**導入済みかつ健全なものには触れない**。不足分（または毒マニフェスト）だけを
+  1 本の `pnpm add` / `npm install` にまとめ、`dependencies` と lockfile は事前にバックアップする。
 - 再起動、プロキシ変更、他のプラグイン設定の変更は一切しない。
 
 ---
@@ -453,6 +467,7 @@ dsh-gateway-shield health check
 ✓ lib/refusal.js
 ✓ cordis.patch.yml
 ✓ dsh.bundle.patch = ./cordis.patch.yml
+✓ does not block startup (no dsh.client declaration)
 ✓ profile has no hand-written registration (owned by dsh.bundle)
 
 Ready. The plugin manager should recognise it; effective after restarting DSH.
@@ -469,11 +484,48 @@ Ready. The plugin manager should recognise it; effective after restarting DSH.
 
 ---
 
+## インストール後に DSH が起動しない
+
+**0.3.0 の症状**：`node install.mjs` は「完了」と言うのに、再起動すると DSH が落ち、
+ログにはこう出る：
+
+```
+error: StartupError: dsh: startup failed: 1 required plugin did not activate
+  AggregateError: client-modules: 1 client package failed to compose:
+    - client-modules: dsh-gateway-shield declares dsh.client but exports no "./client" bundle
+```
+
+**原因**：0.2.0 が「web profile に認識させるため」として `"client": { "platform": "web" }`
+を `package.json` に足した。この行の本当の意味は「ブラウザ側モジュールを持つ」であり、
+`dsh-client-modules` はそう宣言したパッケージに `exports["./client"]` を要求し、
+無ければ例外を投げる。`dsh-app-boot` はそれを「必須プラグインが起動しなかった」と
+扱うため、DSH のプロセスごと終了する。権限・アカウント・バージョンとは無関係。
+本プラグインはホスト側のみ（`llm/stream` フック）で、フロントエンド成果物を持たない。
+**0.3.1 でこの宣言を削除した。**
+
+既に踏んだ場合の復旧は 2 手：
+
+```bash
+# 1) まず DSH を起動可能に：dsh.profile.bundles から外す（設定 → プラグイン、または package.json を直接編集）
+# 2) 修正版を入れる（node_modules の古いファイルをその場で上書き）
+node install.mjs
+node install.mjs --verify    # 「does not block startup (no dsh.client declaration)」が出れば OK
+```
+
+再インストールせず応急処置するなら、
+`<profile>/node_modules/dsh-gateway-shield/package.json` の `dsh.client` ブロックを丸ごと削除する。
+
+0.3.1 以降はインストーラがコピーの前後でマニフェストを検査し、`bootstrap.mjs` は
+展開後に検査してから導入し、登録時にも同じゲートを通す ——
+**プラグインが動かない方が、DSH が死ぬよりまし**。
+
+---
+
 ## 検証
 
 ```bash
-npm test                # 自己テスト 38 件 + エンドツーエンド 13 件 + インストーラ 30 件
-npm run test:companions # インストーラの 30 件のみ（オフライン・依存ゼロ）
+npm test                # 自己テスト 47 件 + エンドツーエンド 13 件 + インストーラ 38 件
+npm run test:companions # インストーラの 38 件のみ（オフライン・依存ゼロ）
 npm run probe           # next(opts) が捨てられること、this.stream() 再入が成立することを証明
 npm run verify          # ヘルスチェック
 ```
@@ -525,15 +577,16 @@ dsh-gateway-shield/
 │   ├── index.js          llm/stream フック、this.stream() 再入
 │   ├── sanitize.js       15 件のゲートウェイ指紋の同義書き換え
 │   ├── refusal.js        拒否検知 + 強化セグメント（三つの options 形状）
-│   ├── companions.js     相棒レジストリ / インストール計画 / 実行器
+│   ├── companions.js     相棒レジストリ / 検出 / インストール計画 / 実行器
+│   ├── manifest.js       起動安全マニフェスト検査（dsh.client / dsh.bundle の実際の契約）
 │   └── profile.js        dsh.profile.bundles 登録、マニフェストのバックアップ、旧ブロック削除
 ├── scripts/
-│   ├── selftest.mjs      自己テスト 38 件
+│   ├── selftest.mjs      自己テスト 47 件
 │   ├── e2e.mjs           エンドツーエンド 13 件
-│   ├── companions-test.mjs   インストーラ 30 件（オフライン、fixture profile）
+│   ├── companions-test.mjs   インストーラ 38 件（オフライン、fixture profile）
 │   ├── probe-waterfall.mjs   next(opts) が捨てられることを証明
 │   └── probe-reentry.mjs     this.stream() 再入が再帰せず成立することを証明
-├── install.mjs           インストール / 登録 / ヘルスチェック / 掃除（--with-companions 対応）
+├── install.mjs           インストール / 登録 / ヘルスチェック / 掃除。既定で不足の相棒を補完
 ├── bootstrap.mjs         ワンライナーインストーラ
 ├── CHANGELOG.md          更新履歴
 └── LICENSE               MIT
