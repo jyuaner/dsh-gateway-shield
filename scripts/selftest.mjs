@@ -531,6 +531,46 @@ test("DEFAULTS 形状", () => {
   assert.equal(DEFAULTS.sanitize, true);
   assert.equal(DEFAULTS.refusalRetry, true);
   assert.deepEqual(DEFAULTS.providers, []);
+  assert.equal(DEFAULTS.verbose, false, "逐请求日志默认关（README 的默认值是它）");
+});
+
+test("verbose=false 也写启动回执", () => {
+  const { ctx, logs } = makeCtx();
+  apply(ctx, { verbose: false });
+  assert.ok(
+    logs.some((l) => l.includes("[gateway-shield] active")),
+    `启动回执丢了，日志：${JSON.stringify(logs)}`,
+  );
+});
+
+test("verbose=false 不写逐请求日志", () => {
+  const { ctx, logs } = makeCtx();
+  const rt = new FakeRuntime(ctx);
+  apply(ctx, { verbose: false, refusalRetry: false });
+  rt.stream(
+    deepFreeze({
+      provider: "workbuddy",
+      model: "m",
+      system: "You are an AI agent powered by DeepSeek Harness",
+      messages: [],
+    }),
+  );
+  assert.ok(!logs.some((l) => l.includes("sanitize provider")), `逐请求日志漏了：${JSON.stringify(logs)}`);
+});
+
+test("verbose=true 才写逐请求日志", () => {
+  const { ctx, logs } = makeCtx();
+  const rt = new FakeRuntime(ctx);
+  apply(ctx, { verbose: true, refusalRetry: false });
+  rt.stream(
+    deepFreeze({
+      provider: "workbuddy",
+      model: "m",
+      system: "You are an AI agent powered by DeepSeek Harness",
+      messages: [],
+    }),
+  );
+  assert.ok(logs.some((l) => l.includes("sanitize provider=workbuddy")), JSON.stringify(logs));
 });
 
 // ---------------------------------------------------------------- 报告
