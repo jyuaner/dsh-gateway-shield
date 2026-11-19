@@ -1,6 +1,6 @@
 {
   "name": "dsh-gateway-shield",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "DSH 出网前的提示词栅栏：网关指纹清洗 + 软拒绝重试，一个插件同时覆盖 WorkBuddy 与 Qoder 模型路由；安装时先检测搭档是否已装，只补缺的那几个。",
   "type": "module",
   "main": "lib/index.js",
@@ -15,6 +15,7 @@
   "files": [
     "lib",
     "scripts",
+    "docs",
     "cordis.patch.yml",
     "install.mjs",
     "bootstrap.mjs",
@@ -48,6 +49,14 @@
     "cordis"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jyuaner/dsh-gateway-shield.git"
+  },
+  "homepage": "https://github.com/jyuaner/dsh-gateway-shield#readme",
+  "bugs": {
+    "url": "https://github.com/jyuaner/dsh-gateway-shield/issues"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"

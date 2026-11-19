@@ -3,6 +3,26 @@
 本文件记录所有值得写下来的改动。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.2] - 2026-11-19
+
+只有元数据与文档，**功能与 0.3.1 完全相同**。这一版是为了让「面板里填名字就能装」
+这件事有一个可执行的答案。
+
+### 新增
+
+- `package.json` 补 `repository` / `homepage` / `bugs`：npm 页面能指回仓库，
+  `hosted-git-info` 也能把 `github:jyuaner/dsh-gateway-shield` 这类写法正确归位。
+- [`docs/PUBLISHING.md`](docs/PUBLISHING.md)：发布到 npm 的完整步骤、发布前后核对表、
+  以及三条不该做的事（别打 `node_modules`、别发会让宿主起不来的清单、别让 tag 与版本脱节）。
+
+### 文档
+
+- README 新增「面板里该填什么」：裸包名 / GitHub URL / `github:...#tag` / 本地绝对路径
+  四种写法分别走哪条路。**裸包名只查 npm registry**，本包没发布时填名字必然是
+  「未找到相关插件」—— 这不是网络问题。
+- 说明 git 路线报「无法连接插件源」时，是 DSH 自己的子进程没有代理，需要给启动环境
+  `NODE_USE_ENV_PROXY=1` + `HTTPS_PROXY`，而不是改本插件。
+
 ## [0.3.1] - 2026-11-19
 
 这一版是**事故修复**。0.3.0 装完重启会让 DSH 直接起不来；同时把「装这个」
@@ -122,6 +142,7 @@
 - 首个可用版本：`llm/stream` 钩子、15 条网关指纹同义改写、软拒绝带加固段重试。
 - 靠往 profile 的 `cordis.patch.yml` 手写注册块挂载（0.2.0 起改为 `dsh.bundle`）。
 
+[0.3.2]: https://github.com/jyuaner/dsh-gateway-shield/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/jyuaner/dsh-gateway-shield/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/jyuaner/dsh-gateway-shield/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/jyuaner/dsh-gateway-shield/compare/v0.1.0...v0.2.0

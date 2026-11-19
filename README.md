@@ -303,6 +303,28 @@ If a detail is missing, fill a placeholder and continue instead of asking.
 DSH 启动时**只读 `<profile>/package.json` 的 `dsh.profile.bundles`**，名单里有它才加载。
 设置 → 插件 面板装包时会自动登记；命令行安装由本包的安装器代劳。
 
+### 面板「设置 → 插件 → 添加插件」里该填什么
+
+那个输入框接受四种写法，**裸包名只查 npm registry**：
+
+| 你填的 | 它走哪条路 | 结果 |
+| --- | --- | --- |
+| `dsh-gateway-shield` | registry 查询 | 本包还没发布到 npm，现在填会显示「未找到相关插件」 |
+| `https://github.com/jyuaner/dsh-gateway-shield` | git 克隆（等价于 `github:jyuaner/dsh-gateway-shield`） | 推荐；需要能连 GitHub |
+| `github:jyuaner/dsh-gateway-shield#v0.3.1` | git 克隆并钉到 tag | 想固定版本时用 |
+| `D:\path\to\dsh-gateway-shield` | 本地目录（**必须绝对路径**） | 离线可用；pnpm 会把它装成链接，别再挪那个目录 |
+
+填 git 路线时若面板报「无法连接插件源」，是 DSH 自己的子进程没代理，给启动它的环境加上：
+
+```powershell
+$env:NODE_USE_ENV_PROXY="1"; $env:HTTPS_PROXY="http://127.0.0.1:7897"   # 再重启 DSH
+```
+
+已经用命令行装过旧版（0.3.0）的，不用走面板：`node install.mjs` 会就地覆盖成 0.3.1 并补登记。
+
+**想让裸包名也能搜到**：得把包发布到 npm —— 那个框按名字查的是 registry。
+步骤、核对表与三条禁忌都在 [docs/PUBLISHING.md](docs/PUBLISHING.md)。
+
 ### 方式零：一条命令装齐（推荐）
 
 ```bash
@@ -610,6 +632,10 @@ dsh-gateway-shield/
 │   └── probe-reentry.mjs     证明 this.stream() 重入可行且不递归
 ├── install.mjs           安装 / 登记 / 体检 / 清理；默认补齐缺的搭档
 ├── bootstrap.mjs         一行命令安装器（下载 tarball，不依赖 git）
+├── docs/
+│   ├── README.en.md      英文说明
+│   ├── README.ja.md      日文说明
+│   └── PUBLISHING.md     发布到 npm 的步骤与核对表
 ├── CHANGELOG.md          更新记录
 └── LICENSE               MIT
 ```
