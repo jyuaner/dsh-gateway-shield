@@ -11,6 +11,12 @@
 
 **Jailbreak WorkBuddy / Qoder models inside DSH.**
 
+> **Frozen at 0.3.x — the [Chinese README](../README.md) is authoritative.**
+> 0.6.1 note: the startup receipt (`[gateway-shield] active | …`) now goes through
+> `console` in addition to `ctx.logger`, because cordis' `LoggerService` only keeps
+> an in-memory ring buffer — `ctx.logger.info()` never reached stdout or any log
+> file, so the documented "check the log for `active`" step could never pass.
+
 `dsh-purge` only breaks DSH's own prompts — it cannot reach models brought in
 through WorkBuddy or Qoder. Those have their own gateways and their own refusal
 habits. This plugin covers that layer.

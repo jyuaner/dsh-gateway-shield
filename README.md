@@ -1,4 +1,4 @@
-﻿<div align="center">
+<div align="center">
 
 # dsh-gateway-shield
 
@@ -19,7 +19,7 @@
 
 通用身份句同义改写 · 软拒绝带加固重试 · 洗 system / messages / tools / toolHistory 四个面 · 零依赖 · 零网络
 
-当前版本 **0.6.0** · 适配 **DSH 0.2.1-rc.1+** · **独立运行，不需要任何搭档**
+当前版本 **0.6.1** · 适配 **DSH 0.2.1-rc.1+** · **独立运行，不需要任何搭档**
 
 不依赖 [dsh-purge](https://github.com/kingcharleslzy-ai/dsh-purge)，也不依赖任何连接器。
 行为层的破甲（让模型愿意做）和传输层的护栏（让请求到得了、别在网关被拦）本来就是两件事，
@@ -556,6 +556,7 @@ $env:HTTPS_PROXY="http://127.0.0.1:7897"
         paranoid: false
         zeroWidth: false
         verbose: false
+        receipt: true
 ```
 
 | 键 | 默认 | 说明 |
@@ -568,7 +569,8 @@ $env:HTTPS_PROXY="http://127.0.0.1:7897"
 | `providers` | `[]` | 空 = 全部；也可写 `["workbuddy"]` 只保护一家 |
 | `paranoid` | `false` | 额外改写真身句变体（超出实测表，属于猜） |
 | `zeroWidth` | `false` | 身份句内部插零宽空格（CN 网关会归一化掉，只对 global 有效） |
-| `verbose` | `false` | 逐请求详细日志；启动那行 `active | …` 不受它控制 |
+| `verbose` | `false` | 逐请求详细日志；启动那两行 `active` / `fingerprints` 不受它控制 |
+| `receipt` | `true` | 启动回执打到控制台（`ctx.logger` + `console` 双写）。见[怎么确认生效](#怎么确认生效) |
 
 改行为就改**包内**这份文件（`<profile>/node_modules/dsh-gateway-shield/cordis.patch.yml`），然后重启。
 
@@ -601,11 +603,18 @@ $env:HTTPS_PROXY="http://127.0.0.1:7897"
 
 ## 怎么确认生效
 
-重启后看日志，应有这一行：
+重启后，**stdout** 里应出现这两行（`dsh` 的 `run-*-out.log` 就是它）：
 
 ```
 [gateway-shield] active | sanitize=true refusalRetry=true retryMax=2 providers=all
+[gateway-shield] fingerprints | fallback=unknown(universal, 15 条) 每请求按 provider 选档  surfaces=system,messages,tools,toolHistory
 ```
+
+> **0.6.1 之前这里写的是「看日志」。那是个坑。** cordis 的 `LoggerService` 只挂着
+> 一个把消息塞进 1000 条内存环形缓冲的自带 exporter，`ctx.logger.info()` 既不写
+> stdout 也不写文件 —— 所以 0.6.0 及以前这两行在 `~/.dsh/logs` 里**从来没有出现过**，
+> 而插件其实一直是 active 的。现在改走 `console`，才真的能看见。
+> 不想看这两行就设 `receipt: false`。
 
 体检：
 

@@ -3,6 +3,33 @@
 本文件记录所有值得写下来的改动。格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.6.1] - 2026-11-19
+
+**修「照文档验不了，所以判定用不了」。功能一直在跑，回执从来没到过。**
+
+### 修
+
+- **启动回执改走 `console`（`emit()` 双写）**。0.6.0 及以前那两行
+  `[gateway-shield] active | …` / `fingerprints | …` 用 `ctx.logger.info()` 发，
+  而 cordis 的 `LoggerService` 构造时只挂一个把消息塞进 1000 条内存环形缓冲的
+  自带 exporter —— 不写 stdout、不写文件：
+
+  ```js
+  self.exporter({ colors: 3, export: (message) => { self.buffer.push(message) } })
+  ```
+
+  于是 `~/.dsh/logs` 全量 grep `gateway-shield] active` **零命中**，与此同时插件在
+  插件列表里是 `fiberPhase: active`、并且确实在改写出网的 `system`。README「怎么确认
+  生效」给出的唯一验收步骤因此**永远不可能通过**，按文档测只能得出「用不了」的结论。
+  现在 `emit()` 同时写 `ctx.logger` 与 `console.log`，回执真正落到 `run-*-out.log`
+  （`ds-harness-remote` 的 `[ds-harness-remote] …` 走的就是这条通道）。
+- 新增配置项 `receipt`（默认 `true`）：需要静音回执的嵌入场景可关掉。
+  `verbose` 的逐请求日志同样改走 `emit()`，否则它也一样不可见。
+
+### 顺带
+
+- `cordis.patch.yml` 补 `receipt: true` 与对应注释。
+
 ## [0.6.0] - 2026-11-19
 
 **定位收口：这不再是一个「WorkBuddy / Qoder 补丁」，而是 DSH 出网前的通用护栏。**

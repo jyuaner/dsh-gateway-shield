@@ -11,6 +11,13 @@
 
 **DSH 内の WorkBuddy / Qoder モデルをジェイルブレイクする。**
 
+> **0.3.x で凍結 — 権威は[中国語 README](../README.md)。**
+> 0.6.1 の注意点: 起動レシート（`[gateway-shield] active | …`）は `ctx.logger` に
+> 加えて `console` にも出すようになりました。cordis の `LoggerService` は
+> メモリ上のリングバッファしか持たず、`ctx.logger.info()` は stdout にも
+> ログファイルにも届いていなかったため、文書化された「ログで `active` を確認する」
+> 手順は決して成功しませんでした。
+
 `dsh-purge` が破れるのは DSH 自身のプロンプトだけ。WorkBuddy や Qoder から
 取り込んだモデルには届かない。それらは独自のゲートウェイと独自の拒否傾向を持つ。
 本プラグインはその層を埋める。
